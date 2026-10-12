@@ -2120,7 +2120,7 @@ export function CameraTrajectoryPage({
                 aria-controls="trajectory-drawing-panel"
                 aria-expanded="false"
                 onClick={() => setDrawingPanelVisibility(true)}
-                className="absolute left-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
+                className="studio-panel-toggle absolute left-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
               >
                 <PanelLeftOpen className="h-4 w-4" />
                 Path
@@ -2199,7 +2199,7 @@ export function CameraTrajectoryPage({
                   aria-controls="camera-direction-panel"
                   aria-expanded="false"
                   onClick={() => setDirectionPanelVisibility(true)}
-                  className="absolute right-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
+                  className="studio-panel-toggle absolute right-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
                 >
                   Aim
                   <PanelRightOpen className="h-4 w-4" />
