@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -12,6 +14,7 @@ import {
   Line,
   OrbitControls,
   PerspectiveCamera,
+  useTexture,
 } from "@react-three/drei";
 import {
   Canvas,
@@ -40,6 +43,16 @@ import {
   type TrajectoryPoint,
   type TrajectorySegment,
 } from "./camera-trajectory";
+import {
+  consumePendingAxisMove,
+  shouldHandleViewerKey,
+  viewerKeyStep,
+  viewerMovementFromKeys,
+  VIEWER_AXIS_STEP,
+  VIEWER_NAVIGATION_KEYS,
+  VIEWER_RESET_KEY,
+  worldAxisDirection,
+} from "./view-navigation";
 
 const PATH_SAMPLES = 101;
 const PATH_COLOR = "#347f78";
@@ -49,7 +62,12 @@ const SELECTED_CAMERA_TEAL = "#286c66";
 const SELECTED_CAMERA_DARK_TEAL = "#21423d";
 const STUDIO_BACKGROUND = "#eeece5";
 const PREVIEW_PROGRESS_REPORT_INTERVAL = 1 / 12;
-const VIEWER_KEYS = new Set(["w", "a", "s", "d"]);
+
+/** Surface buffers the depth-mesh pipeline adds after integration. */
+type PoseSurfacePoints = PosedView["points"] & {
+  indices?: Uint32Array;
+  uvs?: Float32Array;
+};
 
 type CameraTrajectoryCanvasProps = {
   pose: PosedView;
@@ -99,8 +117,12 @@ type CameraTrajectoryCanvasProps = {
 export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
   const { pose, referenceView, segments } = props;
   const inspecting = props.previewing || props.previewProgress !== null;
+  const navigating = !inspecting && !props.placingDirectionTarget;
   const viewer = useRef<HTMLDivElement>(null);
   const navigationKeys = useRef(new Set<string>());
+  // Outstanding axis-button movement in step units; consumed by the scene's
+  // frame loop with damping.
+  const pendingAxisMove = useRef(new THREE.Vector3());
   const target = useMemo(
     () => cameraPathTarget(referenceView, pose.centroidWorld),
     [pose.centroidWorld, referenceView],
@@ -109,15 +131,27 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
     position: buildOverviewPosition(referenceView.position, target, segments),
   }));
 
+  const resetView = useCallback(() => {
+    navigationKeys.current.clear();
+    pendingAxisMove.current.set(0, 0, 0);
+    setOverviewHome({
+      position: buildOverviewPosition(referenceView.position, target, segments),
+    });
+  }, [referenceView.position, segments, target]);
+
   useEffect(() => {
-    const clearKeys = () => navigationKeys.current.clear();
-    window.addEventListener("blur", clearKeys);
-    return () => window.removeEventListener("blur", clearKeys);
+    const clearInput = () => {
+      navigationKeys.current.clear();
+      pendingAxisMove.current.set(0, 0, 0);
+    };
+    window.addEventListener("blur", clearInput);
+    return () => window.removeEventListener("blur", clearInput);
   }, []);
 
   useEffect(() => {
     if (!props.placingDirectionTarget) return;
     navigationKeys.current.clear();
+    pendingAxisMove.current.set(0, 0, 0);
     viewer.current?.focus({ preventScroll: true });
     const cancelOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -133,18 +167,41 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
     pressed: boolean,
   ) {
     const key = event.key.toLowerCase();
-    if (!VIEWER_KEYS.has(key)) return;
+    if (key === VIEWER_RESET_KEY) {
+      if (
+        pressed &&
+        !event.repeat &&
+        navigating &&
+        shouldHandleViewerKey(event)
+      ) {
+        resetView();
+      }
+      return;
+    }
+    if (
+      !navigating ||
+      !VIEWER_NAVIGATION_KEYS.has(key) ||
+      !shouldHandleViewerKey(event)
+    ) {
+      return;
+    }
     event.preventDefault();
     if (pressed) navigationKeys.current.add(key);
     else navigationKeys.current.delete(key);
   }
+
+  const nudgeView = useCallback((axis: "x" | "y" | "z", positive: boolean) => {
+    pendingAxisMove.current.add(
+      worldAxisDirection(axis, positive, new THREE.Vector3()),
+    );
+  }, []);
 
   return (
     <div
       ref={viewer}
       role="application"
       tabIndex={0}
-      aria-label="3D camera path viewer. Drag a camera to move it; drag empty space to rotate. Delete removes the selected camera. Use W A S D to move."
+      aria-label="3D camera path viewer. Drag a camera to move it; drag empty space to rotate. Delete removes the selected camera. Use W A S D to move, Q and E to move down and up, and R to reset the view."
       aria-describedby={
         props.placingDirectionTarget ? "look-at-picker-instruction" : undefined
       }
@@ -166,26 +223,55 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
       onBlur={() => navigationKeys.current.clear()}
     >
       {!inspecting && !props.placingDirectionTarget && (
-        <button
-          type="button"
-          title="Reset 3D view"
-          aria-label="Reset 3D view"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => {
-            navigationKeys.current.clear();
-            setOverviewHome({
-              position: buildOverviewPosition(
-                referenceView.position,
-                target,
-                segments,
-              ),
-            });
-          }}
-          className="absolute left-1/2 top-3 z-30 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-md border border-[#263238]/15 bg-[#fffefa]/90 px-3 text-[11px] font-semibold tracking-[0.02em] text-[#263238]/65 shadow-lg backdrop-blur transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#70a99e] active:translate-y-px"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          Reset view
-        </button>
+        <>
+          <button
+            type="button"
+            title="Reset 3D view"
+            aria-label="Reset 3D view"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={resetView}
+            className="absolute left-1/2 top-3 z-30 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-md border border-[#263238]/15 bg-[#fffefa]/90 px-3 text-[11px] font-semibold tracking-[0.02em] text-[#263238]/65 shadow-lg backdrop-blur transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#70a99e] active:translate-y-px"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset view
+          </button>
+          <p className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border border-[#263238]/10 bg-[#fffefa]/80 px-3 py-1 text-[10px] font-medium text-[#263238]/55 shadow-sm backdrop-blur">
+            Drag to orbit · Right-drag to pan · WASD move · Q/E down/up
+          </p>
+          <div className="absolute right-3 top-1/2 z-30 -translate-y-1/2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/90 p-2 shadow-lg backdrop-blur">
+            <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#263238]/50">
+              Move view
+            </p>
+            <div className="grid gap-1">
+              {(["x", "y", "z"] as const).map((axis) => (
+                <div key={axis} className="flex gap-1">
+                  {([false, true] as const).map((positive) => (
+                    <button
+                      key={positive ? "+" : "-"}
+                      type="button"
+                      aria-label={`Move view along world ${axis.toUpperCase()} ${positive ? "positive" : "negative"}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => nudgeView(axis, positive)}
+                      className="h-7 w-11 rounded border border-[#263238]/15 bg-[#fffefa] text-[11px] font-semibold text-[#263238]/65 transition hover:border-[#347f78]/50 hover:text-[#347f78] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
+                    >
+                      {axis.toUpperCase()}
+                      {positive ? "+" : "−"}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={resetView}
+              className="mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded border border-[#263238]/15 bg-[#fffefa] text-[10px] font-semibold text-[#263238]/65 transition hover:border-[#263238]/30 hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset view
+            </button>
+          </div>
+        </>
       )}
       {props.placingDirectionTarget && (
         <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[#96713d]/40 bg-[#fffefa]/95 p-1.5 pl-3 text-xs font-semibold text-[#96713d] shadow-xl backdrop-blur">
@@ -221,6 +307,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
           target={target}
           overviewHome={overviewHome}
           navigationKeys={navigationKeys}
+          pendingAxisMove={pendingAxisMove}
         />
       </Canvas>
     </div>
@@ -303,18 +390,19 @@ function CameraTrajectoryScene({
   target,
   overviewHome,
   navigationKeys,
+  pendingAxisMove,
 }: CameraTrajectoryCanvasProps & {
   target: [number, number, number];
   overviewHome: { position: [number, number, number] };
   navigationKeys: RefObject<Set<string>>;
+  pendingAxisMove: RefObject<THREE.Vector3>;
 }) {
   const inspecting = previewing || previewProgress !== null;
   const overviewCamera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
   const controls = useRef<OrbitControlsImpl>(null);
   const [draggingHandle, setDraggingHandle] = useState(false);
   const lastReportedQuaternion = useRef<THREE.Quaternion | null>(null);
-  const navigationForward = useRef(new THREE.Vector3()).current;
-  const navigationRight = useRef(new THREE.Vector3()).current;
   const navigationMovement = useRef(new THREE.Vector3()).current;
   const linePoints = useMemo(
     () =>
@@ -375,51 +463,86 @@ function CameraTrajectoryScene({
     ) * 0.12,
   );
 
+  // Switching to preview or picking must not leave held keys queued.
+  useEffect(() => {
+    if (!inspecting) return;
+    navigationKeys.current.clear();
+    pendingAxisMove.current.set(0, 0, 0);
+  }, [inspecting, navigationKeys, pendingAxisMove]);
+
+  // Shift+left-drag pans. OrbitControls reads its mouse-button mapping during
+  // its own pointerdown, so swap the mapping in the capture phase before it
+  // runs, and restore orbit on release.
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const handlePointerDown = (event: PointerEvent) => {
+      const activeControls = controls.current;
+      if (
+        !activeControls ||
+        event.target !== canvas ||
+        event.pointerType !== "mouse" ||
+        event.button !== 0 ||
+        !event.shiftKey
+      ) {
+        return;
+      }
+      activeControls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+    };
+    const restoreOrbit = () => {
+      const activeControls = controls.current;
+      if (activeControls) activeControls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("pointerup", restoreOrbit, true);
+    window.addEventListener("pointercancel", restoreOrbit, true);
+    return () => {
+      restoreOrbit();
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("pointerup", restoreOrbit, true);
+      window.removeEventListener("pointercancel", restoreOrbit, true);
+    };
+  }, [gl]);
+
   useFrame((_, delta) => {
     const activeControls = controls.current;
-    const keys = navigationKeys.current;
     if (
       !activeControls ||
       inspecting ||
       draggingHandle ||
       addingPivot ||
-      placingDirectionTarget ||
-      keys.size === 0
+      placingDirectionTarget
     ) {
       return;
     }
 
-    navigationForward.set(0, 0, -1).applyQuaternion(overviewCamera.quaternion);
-    navigationForward.y = 0;
-    if (navigationForward.lengthSq() < 1e-8) {
-      navigationForward.set(0, 1, 0).applyQuaternion(overviewCamera.quaternion);
-      navigationForward.y = 0;
-    }
-    navigationRight.set(1, 0, 0).applyQuaternion(overviewCamera.quaternion);
-    navigationRight.y = 0;
-    if (
-      navigationForward.lengthSq() < 1e-8 ||
-      navigationRight.lengthSq() < 1e-8
-    ) {
-      return;
-    }
-    navigationForward.normalize();
-    navigationRight.normalize();
-    navigationMovement.set(0, 0, 0);
-    if (keys.has("w")) navigationMovement.add(navigationForward);
-    if (keys.has("s")) navigationMovement.sub(navigationForward);
-    if (keys.has("d")) navigationMovement.add(navigationRight);
-    if (keys.has("a")) navigationMovement.sub(navigationRight);
-    if (navigationMovement.lengthSq() === 0) return;
-
-    navigationMovement
-      .normalize()
-      .multiplyScalar(
-        Math.max(activeControls.getDistance(), 1) * 0.8 * Math.min(delta, 0.1),
+    const distance = activeControls.getDistance();
+    let moved = false;
+    const keys = navigationKeys.current;
+    if (keys.size > 0) {
+      const movement = viewerMovementFromKeys(
+        keys,
+        overviewCamera.quaternion,
+        navigationMovement,
       );
-    overviewCamera.position.add(navigationMovement);
-    activeControls.target.add(navigationMovement);
-    activeControls.update();
+      if (movement.lengthSq() > 0) {
+        movement.multiplyScalar(viewerKeyStep(distance, delta));
+        overviewCamera.position.add(movement);
+        activeControls.target.add(movement);
+        moved = true;
+      }
+    }
+    if (pendingAxisMove.current.lengthSq() > 0) {
+      const axisMove = consumePendingAxisMove(
+        pendingAxisMove.current,
+        distance,
+        delta,
+        navigationMovement,
+      );
+      overviewCamera.position.add(axisMove);
+      activeControls.target.add(axisMove);
+      moved = true;
+    }
+    if (moved) activeControls.update();
   });
 
   return (
@@ -592,7 +715,8 @@ function CameraTrajectoryScene({
           !placingDirectionTarget
         }
         target={target}
-        enablePan={false}
+        enablePan
+        screenSpacePanning
         enableDamping
         dampingFactor={0.08}
         maxPolarAngle={Math.PI - 0.01}
@@ -1392,22 +1516,45 @@ function PosedPointCloud({
   pose: PosedView;
   scaleMultiplier: number;
 }) {
-  const geometry = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute(
-      "position",
-      new THREE.BufferAttribute(pose.points.positions, 3),
-    );
-    g.setAttribute("color", new THREE.BufferAttribute(pose.points.colors, 3));
-    return g;
+  const { pointGeometry, surfaceGeometry } = useMemo(() => {
+    // Both geometries reference the same position/color buffers; nothing
+    // large is copied.
+    const position = new THREE.BufferAttribute(pose.points.positions, 3);
+    const color = new THREE.BufferAttribute(pose.points.colors, 3);
+    const pointGeometry = new THREE.BufferGeometry();
+    pointGeometry.setAttribute("position", position);
+    pointGeometry.setAttribute("color", color);
+
+    const surface = pose.points as PoseSurfacePoints;
+    let surfaceGeometry: THREE.BufferGeometry | null = null;
+    if (surface.indices?.length && surface.uvs?.length) {
+      surfaceGeometry = new THREE.BufferGeometry();
+      surfaceGeometry.setAttribute("position", position);
+      surfaceGeometry.setAttribute(
+        "uv",
+        new THREE.BufferAttribute(surface.uvs, 2),
+      );
+      surfaceGeometry.setIndex(new THREE.BufferAttribute(surface.indices, 1));
+    }
+    return { pointGeometry, surfaceGeometry };
   }, [pose]);
-  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  useEffect(
+    () => () => {
+      pointGeometry.dispose();
+      surfaceGeometry?.dispose();
+    },
+    [pointGeometry, surfaceGeometry],
+  );
+
   return (
     <group
       position={pose.camera.extrinsics.position}
       quaternion={pose.camera.extrinsics.quaternion}
     >
-      <points geometry={geometry}>
+      {/* Colored points stay visible for mesh edges and unmeshed areas; the
+          surface is biased back so coincident points win the depth test. */}
+      <points geometry={pointGeometry}>
         <pointsMaterial
           vertexColors
           size={pose.points.pointSize * scaleMultiplier}
@@ -1415,6 +1562,34 @@ function PosedPointCloud({
           toneMapped={false}
         />
       </points>
+      {surfaceGeometry && (
+        <Suspense fallback={null}>
+          <PosedSurface geometry={surfaceGeometry} imageUrl={pose.imageUrl} />
+        </Suspense>
+      )}
     </group>
+  );
+}
+
+function PosedSurface({
+  geometry,
+  imageUrl,
+}: {
+  geometry: THREE.BufferGeometry;
+  imageUrl: string;
+}) {
+  const texture = useTexture(imageUrl);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return (
+    <mesh geometry={geometry} raycast={() => null}>
+      <meshBasicMaterial
+        map={texture}
+        side={THREE.DoubleSide}
+        toneMapped={false}
+        polygonOffset
+        polygonOffsetFactor={1}
+        polygonOffsetUnits={1}
+      />
+    </mesh>
   );
 }
