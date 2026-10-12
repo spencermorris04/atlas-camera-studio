@@ -102,6 +102,12 @@ import { useEditHistory } from "./use-edit-history";
 import { loadDepthPointCloud, loadExamplePose } from "./pose";
 import { fileToPoseBlob, posePointClouds, type PosedView } from "./pose";
 
+import {
+  CAMERA_MOVE_PRESETS,
+  createCameraMove,
+  type CameraMovePreset,
+} from "./presets";
+
 const DEFAULT_FRAME_COUNT = 48;
 const DEFAULT_FPS = 12;
 const DEFAULT_SEED_COUNT = 1;
@@ -130,8 +136,8 @@ const TARGET_FORMATS: Record<
 const FIRST_GENERATION_SEED = 42;
 const MAX_DEPTH_ANCHORS = 16;
 const DRAWING_PANEL_SIZES = [
-  { label: "Small", widthClass: "w-80" },
-  { label: "Medium", widthClass: "w-[26rem]" },
+  { label: "Small", widthClass: "w-64" },
+  { label: "Medium", widthClass: "w-[20rem]" },
   { label: "Large", widthClass: "w-[34rem]" },
   { label: "Full", widthClass: "w-[44rem]" },
 ] as const;
@@ -424,6 +430,9 @@ export function CameraTrajectoryPage({
   const [aspectRatio, setAspectRatio] =
     useState<CameraTrajectoryAspectRatio>(DEFAULT_ASPECT_RATIO);
   const [previewing, setPreviewing] = useState(false);
+  const [previewProgress, setPreviewProgress] = useState<number | null>(null);
+  const [moveAmount, setMoveAmount] = useState(0.25);
+  const inspecting = previewing || previewProgress !== null;
   const [addingPivot, setAddingPivot] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -438,7 +447,9 @@ export function CameraTrajectoryPage({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
   const [drawingPanelOpen, setDrawingPanelOpen] = useState(true);
-  const [directionPanelOpen, setDirectionPanelOpen] = useState(true);
+  const [directionPanelOpen, setDirectionPanelOpen] = useState(
+    () => window.innerWidth >= 1024,
+  );
   const [drawingPanelSizeIndex, setDrawingPanelSizeIndex] = useState(
     DEFAULT_DRAWING_PANEL_SIZE_INDEX,
   );
@@ -518,6 +529,7 @@ export function CameraTrajectoryPage({
     setSelectedPivot(null);
     setAddingPivot(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setDrawingView(null);
     setPrompt(restoredDraft?.prompt ?? "");
     setDirectionMode(restoredDirectionMode(restoredDraft?.direction_mode));
@@ -779,6 +791,7 @@ export function CameraTrajectoryPage({
 
   function goHome() {
     setPreviewing(false);
+    setPreviewProgress(null);
     setAddingPivot(false);
     setHistoryOpen(false);
     setHomeOpen(true);
@@ -805,6 +818,7 @@ export function CameraTrajectoryPage({
     }
     setAddingPivot(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setSubmitting(true);
     setError(null);
     setNotice(null);
@@ -1201,6 +1215,7 @@ export function CameraTrajectoryPage({
       setSelectedPivot(null);
       setSelectedSegmentId(null);
       setPreviewing(false);
+      setPreviewProgress(null);
       setAddingPivot(false);
       setPlacingDirectionTarget(false);
       setPlacingLookAtSegmentId(null);
@@ -1257,6 +1272,7 @@ export function CameraTrajectoryPage({
     setSegments(smoothTrajectorySegments(segments, closedLoop));
     setTrajectorySmoothingVersion(TRAJECTORY_SMOOTHING_VERSION);
     setPreviewing(false);
+    setPreviewProgress(null);
     setAddingPivot(false);
     setError(null);
     setNotice(
@@ -1280,6 +1296,7 @@ export function CameraTrajectoryPage({
     if (frameCount >= minimumFrameCount) return;
     setFrameCount(minimumFrameCount);
     setPreviewing(false);
+    setPreviewProgress(null);
   }, [frameCount, minimumFrameCount]);
 
   function updateDrawnSegments(nextSegments: TrajectorySegment[]) {
@@ -1287,6 +1304,7 @@ export function CameraTrajectoryPage({
     setClosedLoop(false);
     setAddingPivot(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1314,6 +1332,7 @@ export function CameraTrajectoryPage({
       moveTrajectoryPoint(current, segmentId, pointIndex, position),
     );
     setPreviewing(false);
+    setPreviewProgress(null);
     setSelectedSegmentId(segmentId);
     setError(null);
   }
@@ -1346,6 +1365,7 @@ export function CameraTrajectoryPage({
     setTrajectorySmoothingVersion(materialized.version);
     setAddingPivot(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
     const scopeLabel = scopeSegmentId
       ? `Part ${segments.findIndex((segment) => segment.id === scopeSegmentId) + 1}`
@@ -1367,6 +1387,7 @@ export function CameraTrajectoryPage({
       setPendingDirectionMode(mode);
       setPlacingDirectionTarget(true);
       setPreviewing(false);
+      setPreviewProgress(null);
       setError(null);
       return;
     }
@@ -1380,6 +1401,7 @@ export function CameraTrajectoryPage({
     setPendingDirectionMode(null);
     setPlacingDirectionTarget(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1388,6 +1410,7 @@ export function CameraTrajectoryPage({
     setPendingDirectionMode(null);
     setPlacingDirectionTarget(true);
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1403,6 +1426,7 @@ export function CameraTrajectoryPage({
       ),
     );
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1424,6 +1448,7 @@ export function CameraTrajectoryPage({
     );
     setDirectionMode("manual");
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
     const partNumber =
       segments.findIndex((segment) => segment.id === segmentId) + 1;
@@ -1464,7 +1489,7 @@ export function CameraTrajectoryPage({
           ))
     ) {
       setError(
-        "That point is on the camera path. Pick a nearby object away from the blue line.",
+        "That point is on the camera path. Pick a nearby object away from the teal line.",
       );
       return;
     }
@@ -1492,6 +1517,7 @@ export function CameraTrajectoryPage({
     setPendingDirectionMode(null);
     setPlacingDirectionTarget(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
     setNotice(
       nextMode === "look_at"
@@ -1521,6 +1547,7 @@ export function CameraTrajectoryPage({
       pivotNumber: inserted.pivotNumber,
     });
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1530,6 +1557,10 @@ export function CameraTrajectoryPage({
     pivotNumber: number,
   ) {
     setSelectedPivot({ segmentId, pointIndex, pivotNumber });
+    if (window.innerWidth < 1024) {
+      setDrawingPanelOpen(false);
+      setDirectionPanelOpen(true);
+    }
     setSelectedSegmentId(segmentId);
     setAddingPivot(false);
     setError(null);
@@ -1556,6 +1587,7 @@ export function CameraTrajectoryPage({
           ),
     );
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1566,6 +1598,7 @@ export function CameraTrajectoryPage({
     setSelectedPivot(null);
     setAddingPivot(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setPlacingLookAtSegmentId(null);
     setClosedLoop(false);
     setError(null);
@@ -1584,6 +1617,7 @@ export function CameraTrajectoryPage({
     setAllowBelowFloor(nextAllowBelowFloor);
     setAddingPivot(false);
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1601,6 +1635,7 @@ export function CameraTrajectoryPage({
     }
     setClosedLoop(true);
     setPreviewing(false);
+    setPreviewProgress(null);
     setError(null);
   }
 
@@ -1612,6 +1647,7 @@ export function CameraTrajectoryPage({
     }
     setSelectedPivot(null);
     setPreviewing(false);
+    setPreviewProgress(null);
     setAddingPivot(false);
     setClosedLoop(false);
     setError(null);
@@ -1645,6 +1681,7 @@ export function CameraTrajectoryPage({
     );
     setSelectedSegmentId(nextPivot?.segmentId ?? null);
     setPreviewing(false);
+    setPreviewProgress(null);
     setAddingPivot(false);
     setError(null);
   }
@@ -1652,33 +1689,70 @@ export function CameraTrajectoryPage({
   function updateFrameCount(nextFrameCount: number) {
     setFrameCount(Math.max(nextFrameCount, minimumFrameCount));
     setPreviewing(false);
+    setPreviewProgress(null);
   }
 
   function updateFps(nextFps: number) {
     setFps(nextFps);
     setPreviewing(false);
+    setPreviewProgress(null);
   }
 
   function updateTargetFov(nextTargetFovDegrees: number) {
     setTargetFovDegrees(nextTargetFovDegrees);
     setPreviewing(false);
+    setPreviewProgress(null);
   }
 
   function updateAspectRatio(nextAspectRatio: CameraTrajectoryAspectRatio) {
     setAspectRatio(nextAspectRatio);
     setPreviewing(false);
+    setPreviewProgress(null);
+  }
+
+  function applyMovePreset(preset: CameraMovePreset) {
+    if (!targetReferenceView || !pose) return;
+    const segment = createCameraMove(
+      preset,
+      targetReferenceView,
+      pose.centroidWorld,
+      moveAmount,
+      allowBelowFloor,
+    );
+    setSegments([segment]);
+    setTrajectorySmoothingVersion(TRAJECTORY_SMOOTHING_VERSION);
+    setDirectionMode("manual");
+    setDirectionTarget(null);
+    setClosedLoop(false);
+    setSelectedPivot(null);
+    setSelectedSegmentId(segment.id);
+    setPreviewing(false);
+    setPreviewProgress(null);
+    setAddingPivot(false);
+    setPlacingDirectionTarget(false);
+    setPlacingLookAtSegmentId(null);
+    setPendingDirectionMode(null);
+    setError(null);
+    setNotice(
+      "Camera move applied. Drag its points to refine it, or undo to restore your path.",
+    );
   }
 
   function togglePathPreview() {
     if (views.length < 2) return;
     setAddingPivot(false);
-    if (!previewing) materializeSmoothedTrajectory();
+    if (!previewing) {
+      materializeSmoothedTrajectory();
+      if (previewProgress === null || previewProgress >= 1)
+        setPreviewProgress(0);
+    }
     setPreviewing((current) => !current);
     setError(null);
   }
 
   function setDrawingPanelVisibility(open: boolean) {
     setDrawingPanelOpen(open);
+    if (open && window.innerWidth < 1024) setDirectionPanelOpen(false);
     requestAnimationFrame(() => {
       (open
         ? drawingPanelMinimizeButton
@@ -1689,6 +1763,7 @@ export function CameraTrajectoryPage({
 
   function setDirectionPanelVisibility(open: boolean) {
     setDirectionPanelOpen(open);
+    if (open && window.innerWidth < 1024) setDrawingPanelOpen(false);
     requestAnimationFrame(() => {
       (open
         ? directionPanelMinimizeButton
@@ -1698,7 +1773,7 @@ export function CameraTrajectoryPage({
   }
 
   return (
-    <div className="relative h-dvh min-h-dvh overflow-hidden bg-[#0b0c0f] font-sans text-[#f7f5ef]">
+    <div className="camera-editor relative h-dvh min-h-dvh overflow-hidden bg-[#f4f2ec] font-sans text-[#263238]">
       <input
         ref={fileInput}
         type="file"
@@ -1731,19 +1806,19 @@ export function CameraTrajectoryPage({
           inert={homeOpen ? true : undefined}
         >
           {pose.depthUri === EXAMPLE_DEPTH && (
-            <div className="border-b border-white/10 bg-[#151b2c] px-4 py-2 text-xs text-white/70">
+            <div className="border-b border-[#263238]/10 bg-[#e1efeb] px-4 py-2 text-xs text-[#263238]/70">
               Example scene · Move the cameras, smooth the path, and press
               Preview. No signup needed to explore.
               {!canViewHistory &&
                 " Sign in and verify your phone only when you want to generate a video or upload your own image."}
             </div>
           )}
-          <header className="relative z-40 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-b border-white/10 bg-[#0f1014] px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:gap-3 md:px-4">
+          <header className="relative z-40 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-b border-[#263238]/10 bg-[#fffefa] px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:gap-3 md:px-4">
             <div className="hidden md:block">
               <h1 className="text-lg font-semibold tracking-[-0.025em]">
                 Plan the camera move
               </h1>
-              <p className="mt-0.5 text-xs text-white/45">
+              <p className="mt-0.5 text-xs text-[#263238]/60">
                 {views.length >= 2
                   ? `3D path → ${frameCount} video frames`
                   : "Draw, rotate, and continue"}
@@ -1757,7 +1832,7 @@ export function CameraTrajectoryPage({
                 title="Undo (⌘Z / Ctrl+Z)"
                 disabled={!edits.canUndo || submitting || savingDraft}
                 onClick={edits.undo}
-                className="grid h-11 w-11 place-items-center rounded-md border border-white/15 text-white/65 hover:bg-white/10 disabled:opacity-25"
+                className="grid h-11 w-11 place-items-center rounded-md border border-[#263238]/15 text-[#263238]/65 hover:bg-[#263238]/10 disabled:opacity-25"
               >
                 <Undo2 className="h-4 w-4" />
               </button>
@@ -1767,21 +1842,21 @@ export function CameraTrajectoryPage({
                 title="Redo (⌘⇧Z / Ctrl+Shift+Z)"
                 disabled={!edits.canRedo || submitting || savingDraft}
                 onClick={edits.redo}
-                className="grid h-11 w-11 place-items-center rounded-md border border-white/15 text-white/65 hover:bg-white/10 disabled:opacity-25"
+                className="grid h-11 w-11 place-items-center rounded-md border border-[#263238]/15 text-[#263238]/65 hover:bg-[#263238]/10 disabled:opacity-25"
               >
                 <Redo2 className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={() => setHistoryOpen(true)}
-                className="flex h-11 items-center justify-center gap-2 rounded-md border border-white/15 px-3 text-sm text-white/65 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+                className="flex h-11 items-center justify-center gap-2 rounded-md border border-[#263238]/15 px-3 text-sm text-[#263238]/65 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] disabled:opacity-30"
               >
                 <HistoryIcon className="h-4 w-4" />
                 <span className="hidden lg:inline">Saved</span>
                 {queueItems.some((item) =>
                   item.variants.some((variant) => variant.video_uri === null),
                 ) && (
-                  <span className="rounded bg-[#a9bcff]/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#c0cdff]">
+                  <span className="rounded bg-[#347f78]/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#286c66]">
                     {
                       queueItems.filter((item) =>
                         item.variants.some(
@@ -1797,7 +1872,7 @@ export function CameraTrajectoryPage({
                 onClick={goHome}
                 aria-label="Home"
                 title="Home"
-                className="flex h-11 items-center justify-center gap-2 rounded-md border border-white/15 px-3 text-sm text-white/65 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px disabled:opacity-30"
+                className="flex h-11 items-center justify-center gap-2 rounded-md border border-[#263238]/15 px-3 text-sm text-[#263238]/65 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px disabled:opacity-30"
               >
                 <House className="h-4 w-4" />
                 <span className="hidden sm:inline">Home</span>
@@ -1805,24 +1880,24 @@ export function CameraTrajectoryPage({
             </div>
           </header>
 
-          <main className="relative min-h-0 flex-1 overflow-hidden bg-[#111216]">
+          <main className="relative min-h-0 flex-1 overflow-hidden bg-[#eeece5]">
             <div
               className={
-                previewing
-                  ? "absolute inset-0 grid place-items-center bg-[#07080a] p-4 sm:p-8"
+                inspecting
+                  ? "absolute inset-0 grid place-items-center bg-[#eeece5] p-4 sm:p-8"
                   : "absolute inset-0"
               }
             >
               <div
                 className={
-                  previewing
+                  inspecting
                     ? aspectRatio === "9:16"
-                      ? "relative h-full max-h-full max-w-full overflow-hidden rounded-lg border border-white/15 bg-black shadow-2xl"
-                      : "relative aspect-video w-full max-w-[min(72rem,130dvh)] overflow-hidden rounded-lg border border-white/15 bg-black shadow-2xl"
+                      ? "relative h-full max-h-full max-w-full overflow-hidden rounded-lg border border-[#263238]/15 bg-[#eeece5] shadow-lg"
+                      : "relative aspect-video w-full max-w-[min(72rem,130dvh)] overflow-hidden rounded-lg border border-[#263238]/15 bg-[#eeece5] shadow-lg"
                     : "h-full w-full"
                 }
                 style={
-                  previewing
+                  inspecting
                     ? {
                         aspectRatio: `${targetFormat.width} / ${targetFormat.height}`,
                       }
@@ -1838,6 +1913,8 @@ export function CameraTrajectoryPage({
                   selectedPivot={selectedPivot}
                   addingPivot={addingPivot}
                   previewing={previewing}
+                  previewProgress={previewProgress}
+                  onPreviewProgress={setPreviewProgress}
                   disabled={false}
                   frameCount={frameCount}
                   previewSeconds={frameCount / fps}
@@ -1874,25 +1951,28 @@ export function CameraTrajectoryPage({
                   }
                 />
 
-                {previewing && (
+                {inspecting && (
                   <>
-                    <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-white/15 bg-[#0b0c0f]/85 px-3 py-2 text-xs font-medium text-white/75 backdrop-blur">
+                    <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-[#263238]/15 bg-[#f4f2ec]/85 px-3 py-2 text-xs font-medium text-[#263238]/75 backdrop-blur">
                       Camera preview · {aspectRatio}
                     </div>
                     <button
                       type="button"
-                      onClick={togglePathPreview}
-                      className="absolute right-3 top-3 flex h-9 items-center gap-2 rounded-md bg-white px-3 text-xs font-semibold text-[#101114] shadow-lg transition hover:bg-white/90 active:translate-y-px"
+                      onClick={() => {
+                        setPreviewing(false);
+                        setPreviewProgress(null);
+                      }}
+                      className="absolute right-3 top-3 flex h-9 items-center gap-2 rounded-md bg-white px-3 text-xs font-semibold text-[#263238] shadow-lg transition hover:bg-[#eeece5] active:translate-y-px"
                     >
                       <Pause className="h-3.5 w-3.5" />
-                      Stop preview
+                      Back to editor
                     </button>
                   </>
                 )}
               </div>
             </div>
 
-            {!previewing && (
+            {!inspecting && (
               <div
                 id="trajectory-drawing-panel"
                 hidden={!drawingPanelOpen || placingDirectionTarget}
@@ -1900,13 +1980,13 @@ export function CameraTrajectoryPage({
                 data-camera-drawing-panel-size={
                   DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.label
                 }
-                className={`absolute left-3 top-3 z-30 max-h-[calc(100%-11rem)] max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-white/15 bg-[#0b0c0f]/94 p-3 shadow-2xl transition-[width] duration-200 backdrop-blur-xl xl:max-h-[calc(100%-7rem)] ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
+                className={`absolute left-3 top-3 z-30 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-13rem)] max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[#263238]/15 bg-[#f4f2ec]/94 p-3 shadow-lg transition-[width] duration-200 backdrop-blur-xl xl:max-h-[calc(100%-11rem)] ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
               >
-                <div className="mb-2 flex items-center gap-2.5 border-b border-white/10 pb-2">
+                <div className="mb-2 flex items-center gap-2.5 border-b border-[#263238]/10 pb-2">
                   <button
                     type="button"
                     onClick={chooseNewImage}
-                    className="group w-16 shrink-0 overflow-hidden rounded bg-black disabled:opacity-30"
+                    className="group w-16 shrink-0 overflow-hidden rounded bg-[#eeece5] disabled:opacity-30"
                   >
                     <img
                       src={previewUrl ?? pose.imageUrl}
@@ -1915,14 +1995,14 @@ export function CameraTrajectoryPage({
                     />
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#f4b860]">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#96713d]">
                       Reference image
                     </p>
-                    <p className="mt-0.5 text-[11px] text-white/55">
+                    <p className="mt-0.5 text-[11px] text-[#263238]/55">
                       Not frame 1
                     </p>
                     <p
-                      className="mt-0.5 truncate text-[10px] text-white/30"
+                      className="mt-0.5 truncate text-[10px] text-[#263238]/55"
                       title={fileName}
                     >
                       {fileName}
@@ -1937,14 +2017,54 @@ export function CameraTrajectoryPage({
                     aria-expanded="true"
                     title="Minimize path panel"
                     onClick={() => setDrawingPanelVisibility(false)}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 text-white/45 transition hover:border-white/25 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#263238]/10 text-[#263238]/60 transition hover:border-[#263238]/25 hover:bg-[#263238]/[0.07] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
                   >
                     <PanelLeftClose className="h-4 w-4" />
                   </button>
                 </div>
 
+                <div className="mb-3 rounded-lg border border-[#263238]/10 bg-white p-3">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#687579]">
+                    Start with a camera move
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {CAMERA_MOVE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => applyMovePreset(preset.id)}
+                        title="Replace the current path. Undo restores it."
+                        className="rounded-md border border-[#347f78]/20 bg-[#e1efeb]/50 px-2 py-2 text-xs font-medium text-[#286c66] hover:bg-[#e1efeb]"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <label
+                    title="Amount used by the next camera move"
+                    className="mt-3 flex items-center gap-3 text-[10px] text-[#687579]"
+                  >
+                    Travel{" "}
+                    <input
+                      aria-label="Camera move amount"
+                      type="range"
+                      min="0.1"
+                      max="0.6"
+                      step="0.05"
+                      value={moveAmount}
+                      onChange={(event) =>
+                        setMoveAmount(Number(event.target.value))
+                      }
+                      className="min-w-0 flex-1 accent-[#347f78]"
+                    />
+                    <span className="w-8 text-right tabular-nums">
+                      {Math.round(moveAmount * 100)}%
+                    </span>
+                  </label>
+                </div>
                 <TrajectoryDrawPad
                   points={trajectoryMap.worldPoints}
+                  colors={trajectoryMap.colors}
                   referencePosition={referenceView.position}
                   segments={segments}
                   selectedSegmentId={selectedSegmentId}
@@ -1968,6 +2088,7 @@ export function CameraTrajectoryPage({
                   onTogglePivot={() => {
                     setAddingPivot((current) => !current);
                     setPreviewing(false);
+                    setPreviewProgress(null);
                     setError(null);
                   }}
                   onCloseLoop={closePathLoop}
@@ -1979,7 +2100,7 @@ export function CameraTrajectoryPage({
               </div>
             )}
 
-            {!previewing && !placingDirectionTarget && !drawingPanelOpen && (
+            {!inspecting && !placingDirectionTarget && !drawingPanelOpen && (
               <button
                 ref={drawingPanelRestoreButton}
                 type="button"
@@ -1988,14 +2109,14 @@ export function CameraTrajectoryPage({
                 aria-controls="trajectory-drawing-panel"
                 aria-expanded="false"
                 onClick={() => setDrawingPanelVisibility(true)}
-                className="absolute left-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-white/15 bg-[#0b0c0f]/94 px-3 text-xs font-semibold text-white/70 shadow-xl backdrop-blur-xl transition hover:border-white/30 hover:bg-[#17181d] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px"
+                className="absolute left-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#f4f2ec]/94 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
               >
                 <PanelLeftOpen className="h-4 w-4" />
                 Path
               </button>
             )}
 
-            {!previewing && views.length >= 1 && (
+            {!inspecting && views.length >= 1 && (
               <CameraDirectionPanel
                 pose={pose}
                 pivots={cameraPivots}
@@ -2041,16 +2162,21 @@ export function CameraTrajectoryPage({
                   }
                   setPlacingDirectionTarget(true);
                   setPreviewing(false);
+                  setPreviewProgress(null);
                   setError(null);
                 }}
                 onChoosePartDirectionTarget={choosePartDirectionTarget}
                 onRemovePartDirectionTarget={removePartLookAtTarget}
                 onLimitDirectionTargetToPart={limitLookAtTargetToPart}
+                allowBelowFloor={allowBelowFloor}
+                onPositionChange={(pivot, position) =>
+                  movePathPoint(pivot.segmentId, pivot.pointIndex, position)
+                }
                 onDelete={deletePathPivot}
               />
             )}
 
-            {!previewing &&
+            {!inspecting &&
               !placingDirectionTarget &&
               views.length >= 1 &&
               !directionPanelOpen && (
@@ -2062,17 +2188,17 @@ export function CameraTrajectoryPage({
                   aria-controls="camera-direction-panel"
                   aria-expanded="false"
                   onClick={() => setDirectionPanelVisibility(true)}
-                  className="absolute right-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-white/15 bg-[#0b0c0f]/94 px-3 text-xs font-semibold text-white/70 shadow-xl backdrop-blur-xl transition hover:border-white/30 hover:bg-[#17181d] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px"
+                  className="absolute right-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#f4f2ec]/94 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
                 >
                   Aim
                   <PanelRightOpen className="h-4 w-4" />
                 </button>
               )}
 
-            {!previewing && (
+            {!inspecting && (
               <div className="absolute inset-x-3 bottom-3 z-20 mx-auto max-w-6xl">
                 {error && (
-                  <div className="mb-2 rounded-md border border-red-400/30 bg-red-950/90 px-3 py-2 text-center text-xs text-red-100 backdrop-blur">
+                  <div className="mb-2 rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-center text-xs text-red-800 backdrop-blur">
                     {error}
                   </div>
                 )}
@@ -2080,7 +2206,7 @@ export function CameraTrajectoryPage({
                   <div
                     role="status"
                     aria-live="polite"
-                    className="mb-2 rounded-md border border-emerald-300/25 bg-emerald-950/90 px-3 py-2 text-center text-xs text-emerald-100 backdrop-blur"
+                    className="mb-2 rounded-md border border-emerald-300/25 bg-emerald-50/95 px-3 py-2 text-center text-xs text-emerald-800 backdrop-blur"
                   >
                     {notice}
                   </div>
@@ -2089,7 +2215,7 @@ export function CameraTrajectoryPage({
                 <div
                   aria-hidden={placingDirectionTarget ? true : undefined}
                   inert={placingDirectionTarget ? true : undefined}
-                  className={`flex flex-wrap items-end gap-2 rounded-xl border border-white/15 bg-[#0b0c0f]/92 p-2.5 pl-4 shadow-2xl backdrop-blur-xl sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
+                  className={`flex flex-wrap items-end gap-2 rounded-xl border border-[#263238]/15 bg-[#f4f2ec]/92 p-2.5 pl-4 shadow-lg backdrop-blur-xl sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
                 >
                   <OutputNumberInput
                     label="FOV°"
@@ -2104,7 +2230,7 @@ export function CameraTrajectoryPage({
                     type="button"
                     disabled={savingDraft || submitting}
                     onClick={() => void saveDraft()}
-                    className="flex h-11 min-w-28 items-center justify-center gap-2 rounded-md border border-white/20 px-3 text-sm font-semibold text-white/75 transition hover:border-white/35 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 active:translate-y-px disabled:cursor-wait disabled:opacity-35 sm:px-4"
+                    className="flex h-11 min-w-28 items-center justify-center gap-2 rounded-md border border-[#263238]/20 px-3 text-sm font-semibold text-[#263238]/75 transition hover:border-[#263238]/35 hover:bg-[#263238]/[0.07] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78]/60 active:translate-y-px disabled:cursor-wait disabled:opacity-35 sm:px-4"
                   >
                     {savingDraft ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -2115,9 +2241,9 @@ export function CameraTrajectoryPage({
                   </button>
 
                   <label className="block min-w-48 flex-1">
-                    <span className="mb-1 block text-[11px] font-medium text-white/55">
+                    <span className="mb-1 block text-[11px] font-medium text-[#263238]/55">
                       What should happen?{" "}
-                      <span className="text-[#a9bcff]"></span>
+                      <span className="text-[#347f78]"></span>
                     </span>
                     <input
                       aria-label="Video prompt"
@@ -2125,7 +2251,7 @@ export function CameraTrajectoryPage({
                       onChange={(event) => setPrompt(event.target.value)}
                       maxLength={1000}
                       placeholder="Example: Slowly orbit left as the person walks forward"
-                      className="h-11 w-full rounded-md border border-white/15 bg-white/[0.06] px-3 text-sm text-white outline-none transition placeholder:text-white/30 hover:border-white/25 focus:border-[#a9bcff] focus:ring-2 focus:ring-[#8ca8ff]/20 disabled:opacity-40"
+                      className="h-11 w-full rounded-md border border-[#263238]/15 bg-[#263238]/[0.06] px-3 text-sm text-[#263238] outline-none transition placeholder:text-[#263238]/55 hover:border-[#263238]/25 focus:border-[#347f78] focus:ring-2 focus:ring-[#347f78]/20 disabled:opacity-40"
                     />
                   </label>
 
@@ -2141,7 +2267,7 @@ export function CameraTrajectoryPage({
                       savingDraft
                     }
                     onClick={() => void generate()}
-                    className="flex h-11 min-w-28 items-center justify-center gap-2 rounded-md bg-[#a9bcff] px-3 text-sm font-semibold text-[#10131c] transition hover:bg-[#c0cdff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 sm:min-w-36 sm:px-4"
+                    className="flex h-11 min-w-28 items-center justify-center gap-2 rounded-md bg-[#347f78] px-3 text-sm font-semibold text-white transition hover:bg-[#286c66] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78]/70 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 sm:min-w-36 sm:px-4"
                   >
                     {submitting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -2165,12 +2291,69 @@ export function CameraTrajectoryPage({
                 </div>
               </div>
             )}
+
+            {views.length >= 2 && !placingDirectionTarget && (
+              <div
+                className={`absolute inset-x-3 z-40 mx-auto flex max-w-3xl items-center gap-3 rounded-xl border border-[#263238]/10 bg-[#fffefa]/95 px-4 py-3 shadow-md backdrop-blur ${inspecting ? "bottom-5" : "bottom-52 sm:bottom-28 xl:bottom-24"}`}
+              >
+                <button
+                  type="button"
+                  aria-label={
+                    previewing ? "Pause camera preview" : "Play camera preview"
+                  }
+                  onClick={togglePathPreview}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#347f78] text-white"
+                >
+                  {previewing ? (
+                    <Pause className="h-3.5 w-3.5" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex justify-between text-[10px] text-[#687579]">
+                    <span>Camera preview</span>
+                    <span className="tabular-nums">
+                      {(((previewProgress ?? 0) * frameCount) / fps).toFixed(2)}{" "}
+                      / {(frameCount / fps).toFixed(2)}s
+                    </span>
+                  </div>
+                  <input
+                    aria-label="Camera preview timeline"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step={1 / (frameCount - 1)}
+                    value={previewProgress ?? 0}
+                    onChange={(event) => {
+                      materializeSmoothedTrajectory();
+                      setPreviewing(false);
+                      setAddingPivot(false);
+                      setPreviewProgress(Number(event.target.value));
+                    }}
+                    className="block w-full accent-[#347f78]"
+                  />
+                </div>
+                {inspecting && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewing(false);
+                      setPreviewProgress(null);
+                    }}
+                    className="shrink-0 text-xs font-medium text-[#347f78]"
+                  >
+                    Edit path
+                  </button>
+                )}
+              </div>
+            )}
           </main>
         </div>
       )}
 
       {ready && homeOpen && (
-        <div className="absolute inset-0 z-[60] bg-[#0b0c0f]">
+        <div className="absolute inset-0 z-[60] bg-[#f4f2ec]">
           <UploadScreen
             previewUrl={previewUrl}
             posing={false}
@@ -2225,6 +2408,8 @@ function CameraDirectionPanel({
   onRemovePartDirectionTarget,
   onLimitDirectionTargetToPart,
   onDelete,
+  allowBelowFloor,
+  onPositionChange,
 }: {
   pose: PosedView;
   pivots: readonly TrajectoryPivot[];
@@ -2255,7 +2440,14 @@ function CameraDirectionPanel({
   onRemovePartDirectionTarget: (segmentId: string) => void;
   onLimitDirectionTargetToPart: (segmentId: string) => void;
   onDelete: (pivot: SelectedPivot) => void;
+  allowBelowFloor: boolean;
+  onPositionChange: (pivot: SelectedPivot, position: TrajectoryPoint) => void;
 }) {
+  const selectedPosition = pivots.find(
+    (pivot) =>
+      pivot.segmentId === selectedPivot?.segmentId &&
+      pivot.pointIndex === selectedPivot?.pointIndex,
+  )?.position;
   const [previewQuaternion, setPreviewQuaternion] =
     useState<TrajectoryQuaternion | null>(null);
   const aimDrag = useRef<{
@@ -2361,12 +2553,14 @@ function CameraDirectionPanel({
       id="camera-direction-panel"
       hidden={hidden}
       aria-label="Camera direction"
-      className="absolute right-3 top-3 z-20 max-h-[calc(100%-7rem)] w-[calc(50%-1.125rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-white/15 bg-[#0b0c0f]/94 p-3 shadow-2xl backdrop-blur-xl"
+      className="absolute right-3 top-3 z-20 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-11rem)] w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-[#263238]/15 bg-[#f4f2ec]/94 p-3 shadow-lg backdrop-blur-xl"
     >
-      <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-2.5">
+      <div className="flex items-start justify-between gap-3 border-b border-[#263238]/10 pb-2.5">
         <div>
-          <h2 className="text-sm font-semibold text-white">Camera direction</h2>
-          <p className="mt-1 text-[11px] leading-4 text-white/45">
+          <h2 className="text-sm font-semibold text-[#263238]">
+            Camera direction
+          </h2>
+          <p className="mt-1 text-[11px] leading-4 text-[#263238]/60">
             Select a camera to move, aim, or delete it.
           </p>
         </div>
@@ -2379,7 +2573,7 @@ function CameraDirectionPanel({
           aria-expanded="true"
           title="Minimize camera direction panel"
           onClick={onMinimize}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 text-white/45 transition hover:border-white/25 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#263238]/10 text-[#263238]/60 transition hover:border-[#263238]/25 hover:bg-[#263238]/[0.07] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
         >
           <PanelRightClose className="h-4 w-4" />
         </button>
@@ -2402,15 +2596,15 @@ function CameraDirectionPanel({
                 aria-label={`Select camera at point ${pivot.pivotNumber}`}
                 aria-pressed={selected}
                 onClick={() => onSelect(pivot)}
-                className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border text-xs font-semibold tabular-nums transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px ${
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border text-xs font-semibold tabular-nums transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px ${
                   selected
                     ? partTargeted
-                      ? "border-[#f4b860] bg-[#f4b860] text-[#10131c]"
-                      : "border-white bg-white text-[#10131c]"
+                      ? "border-[#96713d] bg-[#96713d] text-[#263238]"
+                      : "border-[#263238] bg-white text-[#263238]"
                     : partTargeted
-                      ? "border-[#f4b860]/55 bg-[#f4b860]/10 text-[#ffd18d] hover:border-[#f4b860] hover:bg-[#f4b860]/20"
-                      : "border-white/15 bg-white/[0.06] text-white/60 hover:border-white/30 hover:text-white"
-                } ${!pointDirectionMode && pivot.hasCameraAngle ? "ring-1 ring-[#a9bcff]/80 ring-offset-1 ring-offset-[#0b0c0f]" : ""}`}
+                      ? "border-[#96713d]/55 bg-[#96713d]/10 text-[#96713d] hover:border-[#96713d] hover:bg-[#96713d]/20"
+                      : "border-[#263238]/15 bg-[#263238]/[0.06] text-[#263238]/60 hover:border-[#263238]/30 hover:text-[#263238]"
+                } ${!pointDirectionMode && pivot.hasCameraAngle ? "ring-1 ring-[#347f78]/80 ring-offset-1 ring-offset-[#f4f2ec]" : ""}`}
               >
                 {pivot.pivotNumber}
               </button>
@@ -2425,7 +2619,7 @@ function CameraDirectionPanel({
             disabled={disabled}
             onClick={() => onDelete(selectedPivot)}
             title={`Delete camera ${selectedPivot.pivotNumber} (Delete / Backspace)`}
-            className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-red-400/25 bg-red-500/[0.06] px-2 text-[11px] font-medium text-red-200/70 transition hover:border-red-400/45 hover:bg-red-500/10 hover:text-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-30"
+            className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-red-400/25 bg-red-500/[0.06] px-2 text-[11px] font-medium text-red-700 transition hover:border-red-400/45 hover:bg-red-500/10 hover:text-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Trash2 className="h-3.5 w-3.5" />
             Delete {selectedPivot.pivotNumber}
@@ -2435,6 +2629,21 @@ function CameraDirectionPanel({
 
       {selectedPivot && selectedView && aim ? (
         <>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {(["X", "Y", "Z"] as const).map((axis, index) => (
+              <CameraPositionInput
+                key={`${selectedPivot.segmentId}:${selectedPivot.pointIndex}:${axis}`}
+                axis={axis}
+                value={selectedPosition![index]}
+                min={axis === "Y" && !allowBelowFloor ? 0 : undefined}
+                onChange={(value) => {
+                  const position: TrajectoryPoint = [...selectedPosition!];
+                  position[index] = value;
+                  onPositionChange(selectedPivot, position);
+                }}
+              />
+            ))}
+          </div>
           <div
             role={selectedUsesPointTarget ? "img" : "application"}
             aria-label={
@@ -2462,7 +2671,7 @@ function CameraDirectionPanel({
                 ? undefined
                 : (event) => finishAimDrag(event, false)
             }
-            className={`relative mt-2.5 select-none overflow-hidden rounded-lg border border-white/15 bg-[#090a0d] ${selectedUsesPointTarget ? "touch-auto" : "touch-none"} ${aspectRatio === "9:16" ? "mx-auto w-[58%]" : "w-full"} ${disabled ? "cursor-not-allowed opacity-40" : selectedUsesPointTarget ? "cursor-default" : "cursor-grab active:cursor-grabbing"}`}
+            className={`relative mt-2.5 select-none overflow-hidden rounded-lg border border-[#263238]/15 bg-[#eeece5] ${selectedUsesPointTarget ? "touch-auto" : "touch-none"} ${aspectRatio === "9:16" ? "mx-auto w-[58%]" : "w-full"} ${disabled ? "cursor-not-allowed opacity-40" : selectedUsesPointTarget ? "cursor-default" : "cursor-grab active:cursor-grabbing"}`}
             style={{ aspectRatio: `${frameWidth} / ${frameHeight}` }}
           >
             <div
@@ -2478,15 +2687,15 @@ function CameraDirectionPanel({
                 }}
               />
             </div>
-            <div className="pointer-events-none absolute left-2 top-2 rounded border border-white/15 bg-[#0b0c0f]/80 px-2 py-1 text-[10px] font-medium text-white/65 backdrop-blur">
+            <div className="pointer-events-none absolute left-2 top-2 rounded border border-[#263238]/15 bg-[#f4f2ec]/80 px-2 py-1 text-[10px] font-medium text-[#263238]/65 backdrop-blur">
               Point {selectedPivot.pivotNumber} · dense camera view
             </div>
             <div className="pointer-events-none absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2">
-              <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/55" />
-              <span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/55" />
+              <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-[#263238]/55" />
+              <span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-[#263238]/55" />
             </div>
           </div>
-          <p className="mt-1.5 text-[10px] leading-4 text-white/35">
+          <p className="mt-1.5 text-[10px] leading-4 text-[#263238]/55">
             {selectedUsesPointTarget
               ? selectedPivotUsesPartTarget && !pointDirectionMode
                 ? "Preview follows this part's target. Other parts keep their own behavior."
@@ -2497,9 +2706,9 @@ function CameraDirectionPanel({
           {!selectedUsesPointTarget && (
             <div className="mt-3 space-y-2.5">
               <div>
-                <p className="flex items-center justify-between text-[11px] font-medium text-white/60">
+                <p className="flex items-center justify-between text-[11px] font-medium text-[#263238]/60">
                   <span>Yaw · left / right</span>
-                  <span className="font-mono text-[10px] tabular-nums text-[#c0cdff]">
+                  <span className="font-mono text-[10px] tabular-nums text-[#286c66]">
                     {Math.round(aim.yaw)}°
                   </span>
                 </p>
@@ -2517,9 +2726,9 @@ function CameraDirectionPanel({
                 </div>
               </div>
               <div>
-                <p className="flex items-center justify-between text-[11px] font-medium text-white/60">
+                <p className="flex items-center justify-between text-[11px] font-medium text-[#263238]/60">
                   <span>Pitch · down / up</span>
-                  <span className="font-mono text-[10px] tabular-nums text-[#c0cdff]">
+                  <span className="font-mono text-[10px] tabular-nums text-[#286c66]">
                     {Math.round(aim.pitch)}°
                   </span>
                 </p>
@@ -2541,14 +2750,14 @@ function CameraDirectionPanel({
         </>
       ) : (
         <div
-          className={`mt-3 grid place-items-center rounded-lg border border-dashed border-white/15 bg-white/[0.025] px-8 text-center text-xs leading-5 text-white/40 ${aspectRatio === "9:16" ? "mx-auto w-[58%]" : "w-full"}`}
+          className={`mt-3 grid place-items-center rounded-lg border border-dashed border-[#263238]/15 bg-[#263238]/[0.025] px-8 text-center text-xs leading-5 text-[#263238]/60 ${aspectRatio === "9:16" ? "mx-auto w-[58%]" : "w-full"}`}
           style={{ aspectRatio: `${frameWidth} / ${frameHeight}` }}
         >
           Choose a point above to aim its camera.
         </div>
       )}
       <div className="mt-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/40">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#263238]/60">
           Camera behavior
         </p>
         <div
@@ -2566,10 +2775,10 @@ function CameraDirectionPanel({
                 aria-pressed={selected}
                 title={preset.title}
                 onClick={() => onDirectionModeChange(preset.mode)}
-                className={`h-8 rounded-md border px-2 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px ${
+                className={`h-8 rounded-md border px-2 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px ${
                   selected
-                    ? "border-[#a9bcff] bg-[#a9bcff] text-[#10131c]"
-                    : "border-white/15 bg-white/[0.04] text-white/60 hover:border-white/30 hover:text-white"
+                    ? "border-[#347f78] bg-[#347f78] text-white"
+                    : "border-[#263238]/15 bg-[#263238]/[0.04] text-[#263238]/60 hover:border-[#263238]/30 hover:text-[#263238]"
                 }`}
               >
                 {preset.label}
@@ -2578,19 +2787,19 @@ function CameraDirectionPanel({
           })}
         </div>
         {directionMode !== "manual" && !isPointDirectionMode(directionMode) && (
-          <p className="mt-1.5 text-[10px] leading-4 text-white/35">
+          <p className="mt-1.5 text-[10px] leading-4 text-[#263238]/55">
             Adjusted cameras override this preset; the rest stay automatic.
           </p>
         )}
       </div>
 
       {pointDirectionMode && (
-        <div className="mt-3 flex flex-col items-stretch gap-2 rounded-lg border border-[#f4b860]/25 bg-[#f4b860]/[0.06] p-2.5">
+        <div className="mt-3 flex flex-col items-stretch gap-2 rounded-lg border border-[#96713d]/25 bg-[#96713d]/[0.06] p-2.5">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-[#ffd18d]">
+            <p className="text-[11px] font-semibold text-[#96713d]">
               {hasDirectionTarget ? "Target set in scene" : "Choose a target"}
             </p>
-            <p className="mt-0.5 text-[10px] leading-4 text-white/40">
+            <p className="mt-0.5 text-[10px] leading-4 text-[#263238]/60">
               Every camera points{" "}
               {directionMode === "look_at" ? "at" : "away from"} this spot with
               a level horizon.
@@ -2600,7 +2809,7 @@ function CameraDirectionPanel({
             type="button"
             data-change-direction-target="true"
             onClick={onChooseDirectionTarget}
-            className="h-8 shrink-0 rounded-md border border-[#f4b860]/35 bg-[#f4b860]/10 px-2.5 text-[11px] font-semibold text-[#ffd18d] transition hover:bg-[#f4b860]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f4b860] active:translate-y-px"
+            className="h-8 shrink-0 rounded-md border border-[#96713d]/35 bg-[#96713d]/10 px-2.5 text-[11px] font-semibold text-[#96713d] transition hover:bg-[#96713d]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d] active:translate-y-px"
           >
             {hasDirectionTarget ? "Change point" : "Pick point in 3D"}
           </button>
@@ -2610,14 +2819,14 @@ function CameraDirectionPanel({
       {selectedPart && (
         <div
           data-part-look-at={selectedPart.hasLookAtTarget ? "set" : "unset"}
-          className="mt-3 rounded-lg border border-white/15 bg-white/[0.035] p-2.5"
+          className="mt-3 rounded-lg border border-[#263238]/15 bg-[#263238]/[0.035] p-2.5"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-white/70">
+              <p className="text-[11px] font-semibold text-[#263238]/70">
                 Selected Part {selectedPart.number}
               </p>
-              <p className="mt-0.5 text-[10px] leading-4 text-white/40">
+              <p className="mt-0.5 text-[10px] leading-4 text-[#263238]/60">
                 {selectedPart.hasLookAtTarget
                   ? "This part looks at its own scene point."
                   : pointDirectionMode
@@ -2626,7 +2835,7 @@ function CameraDirectionPanel({
               </p>
             </div>
             {selectedPart.hasLookAtTarget && (
-              <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#f4b860] shadow-[0_0_10px_rgba(244,184,96,0.65)]" />
+              <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#96713d] " />
             )}
           </div>
           {selectedPart.hasLookAtTarget ? (
@@ -2635,7 +2844,7 @@ function CameraDirectionPanel({
                 type="button"
                 data-change-part-look-at={selectedPart.number}
                 onClick={() => onChoosePartDirectionTarget(selectedPart.id)}
-                className="h-8 rounded-md border border-[#f4b860]/35 bg-[#f4b860]/10 px-2 text-[11px] font-semibold text-[#ffd18d] transition hover:bg-[#f4b860]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f4b860] active:translate-y-px"
+                className="h-8 rounded-md border border-[#96713d]/35 bg-[#96713d]/10 px-2 text-[11px] font-semibold text-[#96713d] transition hover:bg-[#96713d]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d] active:translate-y-px"
               >
                 Change point
               </button>
@@ -2643,7 +2852,7 @@ function CameraDirectionPanel({
                 type="button"
                 data-remove-part-look-at={selectedPart.number}
                 onClick={() => onRemovePartDirectionTarget(selectedPart.id)}
-                className="h-8 rounded-md border border-white/15 px-2 text-[11px] font-semibold text-white/55 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px"
+                className="h-8 rounded-md border border-[#263238]/15 px-2 text-[11px] font-semibold text-[#263238]/55 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
               >
                 Remove
               </button>
@@ -2653,7 +2862,7 @@ function CameraDirectionPanel({
               type="button"
               data-limit-look-at-to-part={selectedPart.number}
               onClick={() => onLimitDirectionTargetToPart(selectedPart.id)}
-              className="mt-2 h-8 w-full rounded-md border border-[#f4b860]/35 bg-[#f4b860]/10 px-2 text-[11px] font-semibold text-[#ffd18d] transition hover:bg-[#f4b860]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f4b860] active:translate-y-px"
+              className="mt-2 h-8 w-full rounded-md border border-[#96713d]/35 bg-[#96713d]/10 px-2 text-[11px] font-semibold text-[#96713d] transition hover:bg-[#96713d]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d] active:translate-y-px"
             >
               Look here only for Part {selectedPart.number}
             </button>
@@ -2662,7 +2871,7 @@ function CameraDirectionPanel({
               type="button"
               data-add-part-look-at={selectedPart.number}
               onClick={() => onChoosePartDirectionTarget(selectedPart.id)}
-              className="mt-2 h-8 w-full rounded-md border border-[#f4b860]/35 bg-[#f4b860]/10 px-2 text-[11px] font-semibold text-[#ffd18d] transition hover:bg-[#f4b860]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f4b860] active:translate-y-px"
+              className="mt-2 h-8 w-full rounded-md border border-[#96713d]/35 bg-[#96713d]/10 px-2 text-[11px] font-semibold text-[#96713d] transition hover:bg-[#96713d]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d] active:translate-y-px"
             >
               Look at a point for Part {selectedPart.number}
             </button>
@@ -2670,6 +2879,59 @@ function CameraDirectionPanel({
         </div>
       )}
     </aside>
+  );
+}
+
+function CameraPositionInput({
+  axis,
+  value,
+  min,
+  onChange,
+}: {
+  axis: string;
+  value: number;
+  min?: number;
+  onChange: (value: number) => void;
+}) {
+  const cancel = useRef(false);
+  const [draft, setDraft] = useState(String(Number(value.toFixed(3))));
+  useEffect(() => setDraft(String(Number(value.toFixed(3)))), [value]);
+  function commit() {
+    if (cancel.current) {
+      cancel.current = false;
+      return;
+    }
+    const parsed = Number(draft);
+    if (!draft.trim() || !Number.isFinite(parsed)) {
+      setDraft(String(Number(value.toFixed(3))));
+      return;
+    }
+    const next = min === undefined ? parsed : Math.max(min, parsed);
+    setDraft(String(next));
+    if (next !== value) onChange(next);
+  }
+  return (
+    <label className="text-[10px] font-medium text-[#687579]">
+      Position {axis}
+      <input
+        aria-label={`Camera position ${axis}`}
+        type="number"
+        step="0.01"
+        min={min}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            cancel.current = true;
+            setDraft(String(Number(value.toFixed(3))));
+            event.currentTarget.blur();
+          }
+        }}
+        className="mt-1 h-8 w-full rounded-md border border-[#263238]/15 bg-white px-2 text-xs text-[#263238]"
+      />
+    </label>
   );
 }
 
@@ -2687,7 +2949,7 @@ function CameraAimButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="h-8 rounded-md border border-white/15 bg-white/[0.05] px-2 text-[11px] font-medium text-white/60 transition hover:border-white/30 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-30"
+      className="h-8 rounded-md border border-[#263238]/15 bg-[#263238]/[0.05] px-2 text-[11px] font-medium text-[#263238]/60 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.08] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-30"
     >
       {label}
     </button>
@@ -2697,6 +2959,7 @@ function CameraAimButton({
 type TrajectoryMap = {
   space: TrajectorySpace;
   worldPoints: TrajectoryPoint[];
+  colors: string[];
 };
 
 function buildTrajectoryMap(pose: PosedView): TrajectoryMap {
@@ -2707,6 +2970,8 @@ function buildTrajectoryMap(pose: PosedView): TrajectoryMap {
     new THREE.Vector3(1, 1, 1),
   );
   const worldPoints: TrajectoryPoint[] = [];
+  const colors: string[] = [];
+  const color = new THREE.Color();
   const pointCount = pose.points.shape[0] * pose.points.shape[1];
   const step = Math.max(1, Math.floor(pointCount / 1200));
   const world = new THREE.Vector3();
@@ -2720,6 +2985,7 @@ function buildTrajectoryMap(pose: PosedView): TrajectoryMap {
       continue;
     world.set(x, y, z).applyMatrix4(transform);
     worldPoints.push(world.toArray());
+    colors.push(color.fromArray(pose.points.colors, offset).getStyle());
   }
 
   const extents = worldPoints
@@ -2733,11 +2999,13 @@ function buildTrajectoryMap(pose: PosedView): TrajectoryMap {
       radius: Math.max(1, sceneExtent * 1.35),
     },
     worldPoints,
+    colors,
   };
 }
 
 function TrajectoryDrawPad({
   points,
+  colors,
   referencePosition,
   segments,
   selectedSegmentId,
@@ -2764,6 +3032,7 @@ function TrajectoryDrawPad({
   onPanelSizeChange,
 }: {
   points: readonly TrajectoryPoint[];
+  colors: readonly string[];
   referencePosition: TrajectoryPoint;
   segments: readonly TrajectorySegment[];
   selectedSegmentId: string | null;
@@ -2836,11 +3105,12 @@ function TrajectoryDrawPad({
   const projectedPoints = useMemo(
     () =>
       points
-        .map((point) =>
-          projectTrajectoryPoint(point, displayView, displaySpace),
-        )
-        .filter(([x, y]) => x >= 0 && x <= 1 && y >= 0 && y <= 1),
-    [displaySpace, displayView, points],
+        .map((point, index) => ({
+          position: projectTrajectoryPoint(point, displayView, displaySpace),
+          color: colors[index],
+        }))
+        .filter(({ position: [x, y] }) => x >= 0 && x <= 1 && y >= 0 && y <= 1),
+    [displaySpace, displayView, points, colors],
   );
   const referencePoint = projectTrajectoryPoint(
     referencePosition,
@@ -3011,11 +3281,11 @@ function TrajectoryDrawPad({
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <Rotate3D className="h-3.5 w-3.5 text-white/45" />
-          <h2 className="text-sm font-semibold text-white">Draw new path</h2>
+          <Rotate3D className="h-3.5 w-3.5 text-[#263238]/60" />
+          <h2 className="text-sm font-semibold text-[#263238]">Camera path</h2>
         </div>
         <div
-          className="flex h-7 items-center overflow-hidden rounded-md border border-white/15 bg-black/25"
+          className="flex h-7 items-center overflow-hidden rounded-md border border-[#263238]/15 bg-[#263238]/25"
           aria-label="Drawing panel size"
         >
           <button
@@ -3024,7 +3294,7 @@ function TrajectoryDrawPad({
             onClick={() => onPanelSizeChange(Math.max(0, panelSizeIndex - 1))}
             aria-label="Make drawing panel smaller"
             title="Make drawing panel smaller"
-            className="grid h-full w-7 place-items-center text-white/55 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60 disabled:opacity-25"
+            className="grid h-full w-7 place-items-center text-[#263238]/55 transition hover:bg-[#263238]/10 hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#347f78]/60 disabled:opacity-25"
           >
             <ZoomOut className="h-3.5 w-3.5" />
           </button>
@@ -3033,7 +3303,7 @@ function TrajectoryDrawPad({
             onClick={() => onPanelSizeChange(DEFAULT_DRAWING_PANEL_SIZE_INDEX)}
             aria-label={`Reset drawing panel size from ${panelSize.label} to Medium`}
             title="Reset drawing panel size"
-            className="h-full min-w-14 border-x border-white/10 px-1.5 text-[10px] font-semibold text-white/75 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60"
+            className="h-full min-w-14 border-x border-[#263238]/10 px-1.5 text-[10px] font-semibold text-[#263238]/75 transition hover:bg-[#263238]/10 hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#347f78]/60"
           >
             {panelSize.label}
           </button>
@@ -3047,16 +3317,16 @@ function TrajectoryDrawPad({
             }
             aria-label="Make drawing panel larger"
             title="Make drawing panel larger"
-            className="grid h-full w-7 place-items-center text-white/55 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60 disabled:opacity-25"
+            className="grid h-full w-7 place-items-center text-[#263238]/55 transition hover:bg-[#263238]/10 hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#347f78]/60 disabled:opacity-25"
           >
             <ZoomIn className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
-      <p className="mb-2 text-[10px] leading-4 text-white/45">
+      <p className="mb-2 text-[10px] leading-4 text-[#263238]/60">
         {addingPivot
-          ? "Click the blue path in the main 3D view."
+          ? "Click the teal path in the main 3D view."
           : "Larger panel = finer moves. Every point-to-point section gets equal video time."}
       </p>
 
@@ -3067,24 +3337,24 @@ function TrajectoryDrawPad({
         data-allow-below-floor={allowBelowFloor}
         disabled={disabled}
         onClick={() => onAllowBelowFloorChange(!allowBelowFloor)}
-        className={`mb-2 flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] disabled:opacity-30 ${
+        className={`mb-2 flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] disabled:opacity-30 ${
           allowBelowFloor
-            ? "border-[#66c7e8]/45 bg-[#66c7e8]/10"
-            : "border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.05]"
+            ? "border-[#347f78]/45 bg-[#347f78]/10"
+            : "border-[#263238]/10 bg-[#263238]/[0.025] hover:border-[#263238]/20 hover:bg-[#263238]/[0.05]"
         }`}
       >
         <span>
-          <span className="block text-[11px] font-semibold text-white/80">
+          <span className="block text-[11px] font-semibold text-[#263238]/80">
             Allow below floor
           </span>
-          <span className="mt-0.5 block text-[9px] leading-3.5 text-white/40">
+          <span className="mt-0.5 block text-[9px] leading-3.5 text-[#263238]/60">
             Turn on for underwater or underground shots.
           </span>
         </span>
         <span
           aria-hidden="true"
           className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-            allowBelowFloor ? "bg-[#66c7e8]" : "bg-white/15"
+            allowBelowFloor ? "bg-[#347f78]" : "bg-[#263238]/15"
           }`}
         >
           <span
@@ -3095,7 +3365,7 @@ function TrajectoryDrawPad({
         </span>
       </button>
 
-      <div className="relative aspect-square overflow-hidden rounded-lg border border-white/15 bg-[#15171c]">
+      <div className="relative aspect-square overflow-hidden rounded-lg border border-[#263238]/15 bg-[#eeece5]">
         <svg
           viewBox="0 0 100 100"
           role="application"
@@ -3116,7 +3386,7 @@ function TrajectoryDrawPad({
                       ? `${floorBoundary[0][0] * 100},${floorBoundary[0][1] * 100} ${floorBoundary[1][0] * 100},${floorBoundary[1][1] * 100} 100,100 0,100`
                       : `0,0 100,0 ${floorBoundary[1][0] * 100},${floorBoundary[1][1] * 100} ${floorBoundary[0][0] * 100},${floorBoundary[0][1] * 100}`
                   }
-                  fill="rgba(244, 184, 96, 0.07)"
+                  fill="rgba(150, 113, 61, 0.07)"
                 />
               )}
               <line
@@ -3127,8 +3397,8 @@ function TrajectoryDrawPad({
                 y2={floorBoundary[1][1] * 100}
                 stroke={
                   allowBelowFloor
-                    ? "rgba(102, 199, 232, 0.55)"
-                    : "rgba(244, 184, 96, 0.8)"
+                    ? "rgba(52, 127, 120, 0.55)"
+                    : "rgba(150, 113, 61, 0.8)"
                 }
                 strokeWidth="0.7"
                 strokeDasharray="2 1.5"
@@ -3143,8 +3413,8 @@ function TrajectoryDrawPad({
                 textAnchor="end"
                 fill={
                   allowBelowFloor
-                    ? "rgba(102, 199, 232, 0.8)"
-                    : "rgba(244, 184, 96, 0.85)"
+                    ? "rgba(52, 127, 120, 0.8)"
+                    : "rgba(150, 113, 61, 0.85)"
                 }
                 fontSize="3.2"
                 fontWeight="600"
@@ -3157,24 +3427,25 @@ function TrajectoryDrawPad({
           )}
           <path
             d="M25 0V100M50 0V100M75 0V100M0 25H100M0 50H100M0 75H100"
-            stroke="rgba(255,255,255,0.06)"
+            stroke="rgba(38,50,56,0.08)"
             strokeWidth="0.45"
           />
-          {projectedPoints.map(([x, y], index) => (
+          {projectedPoints.map(({ position: [x, y], color }, index) => (
             <circle
               key={index}
               cx={x * 100}
               cy={y * 100}
               r="0.45"
-              fill="rgba(255,255,255,0.28)"
+              fill={color}
+              opacity={0.8}
             />
           ))}
           <circle
             cx={referencePoint[0] * 100}
             cy={referencePoint[1] * 100}
             r="1.8"
-            fill="#f4b860"
-            stroke="#111216"
+            fill="#96713d"
+            stroke="#eeece5"
             strokeWidth="0.8"
           />
           {displayedPath.length >= 2 && (
@@ -3184,7 +3455,7 @@ function TrajectoryDrawPad({
                   .map(([x, y]) => `${x * 100},${y * 100}`)
                   .join(" ")}
                 fill="none"
-                stroke="#a9bcff"
+                stroke="#347f78"
                 strokeWidth="2.2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -3193,20 +3464,20 @@ function TrajectoryDrawPad({
                 cx={projectedPath[0]![0] * 100}
                 cy={projectedPath[0]![1] * 100}
                 r="2.2"
-                fill="#f7f5ef"
+                fill="#263238"
               />
               <circle
                 cx={projectedPath.at(-1)![0] * 100}
                 cy={projectedPath.at(-1)![1] * 100}
                 r="2.2"
-                fill="#a9bcff"
+                fill="#347f78"
               />
               <circle
                 cx={projectedPath.at(-1)![0] * 100}
                 cy={projectedPath.at(-1)![1] * 100}
                 r="4.5"
                 fill="none"
-                stroke="rgba(169,188,255,0.7)"
+                stroke="rgba(52,127,120,0.7)"
                 strokeWidth="0.8"
               />
               {projectedPartEnds.map(([x, y], index) => (
@@ -3215,15 +3486,15 @@ function TrajectoryDrawPad({
                     cx={x * 100}
                     cy={y * 100}
                     r="2.5"
-                    fill={index === segments.length - 1 ? "#a9bcff" : "#15171c"}
-                    stroke="#a9bcff"
+                    fill={index === segments.length - 1 ? "#347f78" : "#eeece5"}
+                    stroke="#347f78"
                     strokeWidth="0.7"
                   />
                   <text
                     x={x * 100}
                     y={y * 100 + 1}
                     textAnchor="middle"
-                    fill={index === segments.length - 1 ? "#10131c" : "#f7f5ef"}
+                    fill={index === segments.length - 1 ? "#263238" : "#263238"}
                     fontSize="2.8"
                     fontWeight="700"
                   >
@@ -3237,7 +3508,7 @@ function TrajectoryDrawPad({
 
         {path.length < 2 && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="rounded-md border border-white/20 bg-[#0b0c0f]/85 px-3 py-2 text-xs font-semibold text-white shadow-xl">
+            <span className="rounded-md border border-[#263238]/20 bg-[#f4f2ec]/85 px-3 py-2 text-xs font-semibold text-[#263238] shadow-md">
               DRAG TO DRAW
             </span>
           </div>
@@ -3250,12 +3521,12 @@ function TrajectoryDrawPad({
         onClick={onTogglePivot}
         className={`mt-2 flex h-10 w-full items-center justify-center gap-2 rounded border text-xs font-semibold transition disabled:opacity-25 ${
           addingPivot
-            ? "border-[#a9bcff] bg-[#a9bcff] text-[#10131c]"
-            : "border-[#a9bcff]/40 bg-[#a9bcff]/10 text-[#d8e1ff] hover:bg-[#a9bcff]/20"
+            ? "border-[#347f78] bg-[#347f78] text-white"
+            : "border-[#347f78]/40 bg-[#347f78]/10 text-[#286c66] hover:bg-[#347f78]/20"
         }`}
       >
         <Plus className="h-3.5 w-3.5" />
-        {addingPivot ? "Click the blue path in 3D" : "Add pivot on path"}
+        {addingPivot ? "Click the teal path in 3D" : "Add pivot on path"}
       </button>
 
       <button
@@ -3263,7 +3534,7 @@ function TrajectoryDrawPad({
         onClick={onSmooth}
         disabled={disabled || addingPivot || path.length < 3}
         title="Soften bends in the camera path while keeping camera aim and timing"
-        className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded border border-white/15 bg-white/[0.04] text-xs font-semibold text-white/65 transition hover:border-[#a9bcff]/45 hover:bg-[#a9bcff]/10 hover:text-white disabled:opacity-35"
+        className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded border border-[#263238]/15 bg-[#263238]/[0.04] text-xs font-semibold text-[#263238]/65 transition hover:border-[#347f78]/45 hover:bg-[#347f78]/10 hover:text-[#263238] disabled:opacity-35"
       >
         <Sparkles className="h-3.5 w-3.5" />
         Smooth path
@@ -3273,7 +3544,7 @@ function TrajectoryDrawPad({
         data-close-camera-loop="true"
         disabled={disabled || addingPivot || path.length < 3 || closedLoop}
         onClick={onCloseLoop}
-        className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded border border-white/15 bg-white/[0.04] text-xs font-semibold text-white/65 transition hover:border-[#a9bcff]/45 hover:bg-[#a9bcff]/10 hover:text-white disabled:opacity-35"
+        className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded border border-[#263238]/15 bg-[#263238]/[0.04] text-xs font-semibold text-[#263238]/65 transition hover:border-[#347f78]/45 hover:bg-[#347f78]/10 hover:text-[#263238] disabled:opacity-35"
       >
         <Rotate3D className="h-3.5 w-3.5" />
         {closedLoop ? "Loop closed" : "Close loop"}
@@ -3281,7 +3552,7 @@ function TrajectoryDrawPad({
 
       {segments.length > 0 && (
         <div className="mt-2 flex items-center gap-2">
-          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-white/35">
+          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-[#263238]/55">
             Parts
           </span>
           <div className="min-w-0 flex-1 overflow-x-auto">
@@ -3291,15 +3562,15 @@ function TrajectoryDrawPad({
                   key={segment.id}
                   className={`flex h-7 overflow-hidden rounded border text-[10px] font-semibold transition ${
                     segment.id === selectedSegmentId
-                      ? "border-[#a9bcff]/60 bg-[#a9bcff]/15 text-white"
-                      : "border-white/15 bg-white/[0.04] text-white/65"
+                      ? "border-[#347f78]/60 bg-[#347f78]/15 text-[#263238]"
+                      : "border-[#263238]/15 bg-[#263238]/[0.04] text-[#263238]/65"
                   }`}
                 >
                   <button
                     type="button"
                     disabled={disabled}
                     onClick={() => onSelectPart(segment.id)}
-                    className="px-2 transition hover:bg-white/10 disabled:opacity-30"
+                    className="px-2 transition hover:bg-[#263238]/10 disabled:opacity-30"
                     aria-label={`Edit path part ${index + 1}`}
                   >
                     {index + 1}
@@ -3309,7 +3580,7 @@ function TrajectoryDrawPad({
                     disabled={disabled}
                     onClick={() => onDeletePart(segment.id)}
                     aria-label={`Delete path part ${index + 1}`}
-                    className="border-l border-current/15 px-1.5 transition hover:bg-red-400/15 hover:text-red-100 disabled:opacity-30"
+                    className="border-l border-current/15 px-1.5 transition hover:bg-red-400/15 hover:text-red-800 disabled:opacity-30"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -3323,14 +3594,14 @@ function TrajectoryDrawPad({
       {path.length >= 2 && (
         <details
           data-path-shape-panel="true"
-          className="group mt-2 rounded-lg border border-white/15 bg-white/[0.025]"
+          className="group mt-2 rounded-lg border border-[#263238]/15 bg-[#263238]/[0.025]"
         >
-          <summary className="flex h-9 cursor-pointer list-none items-center justify-between px-2.5 text-xs font-semibold text-white/65 transition hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#a9bcff] [&::-webkit-details-marker]:hidden">
+          <summary className="flex h-9 cursor-pointer list-none items-center justify-between px-2.5 text-xs font-semibold text-[#263238]/65 transition hover:bg-[#263238]/[0.05] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#347f78] [&::-webkit-details-marker]:hidden">
             <span>Shape path</span>
             <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" />
           </summary>
-          <div className="border-t border-white/10 p-2.5">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-white/35">
+          <div className="border-t border-[#263238]/10 p-2.5">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#263238]/55">
               Apply to
             </p>
             <div
@@ -3346,8 +3617,8 @@ function TrajectoryDrawPad({
                 onClick={() => setShapeScope("selected")}
                 className={`h-8 rounded-md border px-2 text-[10px] font-semibold transition disabled:opacity-30 ${
                   effectiveShapeScope === "selected"
-                    ? "border-[#a9bcff] bg-[#a9bcff] text-[#10131c]"
-                    : "border-white/15 text-white/55 hover:border-white/30 hover:text-white"
+                    ? "border-[#347f78] bg-[#347f78] text-white"
+                    : "border-[#263238]/15 text-[#263238]/55 hover:border-[#263238]/30 hover:text-[#263238]"
                 }`}
               >
                 {selectedPartIndex >= 0
@@ -3361,8 +3632,8 @@ function TrajectoryDrawPad({
                 onClick={() => setShapeScope("whole")}
                 className={`h-8 rounded-md border px-2 text-[10px] font-semibold transition ${
                   effectiveShapeScope === "whole"
-                    ? "border-[#a9bcff] bg-[#a9bcff] text-[#10131c]"
-                    : "border-white/15 text-white/55 hover:border-white/30 hover:text-white"
+                    ? "border-[#347f78] bg-[#347f78] text-white"
+                    : "border-[#263238]/15 text-[#263238]/55 hover:border-[#263238]/30 hover:text-[#263238]"
                 }`}
               >
                 Whole path
@@ -3403,13 +3674,13 @@ function TrajectoryDrawPad({
                         : null,
                     )
                   }
-                  className="min-h-9 rounded-md border border-white/15 bg-white/[0.04] px-1.5 text-[10px] font-semibold leading-3 text-white/60 transition hover:border-[#a9bcff]/45 hover:bg-[#a9bcff]/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] disabled:cursor-not-allowed disabled:opacity-25"
+                  className="min-h-9 rounded-md border border-[#263238]/15 bg-[#263238]/[0.04] px-1.5 text-[10px] font-semibold leading-3 text-[#263238]/60 transition hover:border-[#347f78]/45 hover:bg-[#347f78]/10 hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] disabled:cursor-not-allowed disabled:opacity-25"
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[9px] leading-3.5 text-white/35">
+            <p className="mt-2 text-[9px] leading-3.5 text-[#263238]/55">
               Circular and Flatten use the current 3D view. Camera aim and
               timing stay unchanged.
             </p>
@@ -3422,7 +3693,7 @@ function TrajectoryDrawPad({
           type="button"
           disabled={disabled || path.length === 0}
           onClick={onClear}
-          className="flex h-9 items-center justify-center gap-1.5 rounded border border-white/15 text-xs font-semibold text-white/60 transition hover:bg-white/10 hover:text-white disabled:opacity-25"
+          className="flex h-9 items-center justify-center gap-1.5 rounded border border-[#263238]/15 text-xs font-semibold text-[#263238]/60 transition hover:bg-[#263238]/10 hover:text-[#263238] disabled:opacity-25"
         >
           <Trash2 className="h-3.5 w-3.5" />
           Clear path
@@ -3431,7 +3702,7 @@ function TrajectoryDrawPad({
           type="button"
           disabled={path.length < 2}
           onClick={onPlay}
-          className="flex h-9 items-center justify-center gap-1.5 rounded bg-[#a9bcff] text-xs font-semibold text-[#10131c] transition hover:bg-[#c0cdff] disabled:opacity-25"
+          className="flex h-9 items-center justify-center gap-1.5 rounded bg-[#347f78] text-xs font-semibold text-white transition hover:bg-[#286c66] disabled:opacity-25"
         >
           {previewing ? (
             <Pause className="h-3.5 w-3.5" />
@@ -3484,7 +3755,7 @@ function OutputNumberInput({
 
   return (
     <label className="w-20 shrink-0" title={title}>
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-white/45">
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#263238]/60">
         {label}
       </span>
       <input
@@ -3504,7 +3775,7 @@ function OutputNumberInput({
             event.currentTarget.blur();
           }
         }}
-        className="h-11 w-full rounded-md border border-white/15 bg-white/[0.06] px-3 text-sm font-semibold text-white outline-none transition hover:border-white/25 focus:border-[#a9bcff] focus:ring-2 focus:ring-[#8ca8ff]/20 disabled:opacity-40"
+        className="h-11 w-full rounded-md border border-[#263238]/15 bg-[#263238]/[0.06] px-3 text-sm font-semibold text-[#263238] outline-none transition hover:border-[#263238]/25 focus:border-[#347f78] focus:ring-2 focus:ring-[#347f78]/20 disabled:opacity-40"
       />
     </label>
   );
@@ -3538,7 +3809,7 @@ function UploadScreen({
       <button
         type="button"
         onClick={onHistory}
-        className="absolute right-4 top-4 flex h-10 items-center gap-2 rounded-md border border-white/15 px-3 text-sm text-white/60 transition hover:bg-white/[0.06] hover:text-white"
+        className="absolute right-4 top-4 flex h-10 items-center gap-2 rounded-md border border-[#263238]/15 px-3 text-sm text-[#263238]/60 transition hover:bg-[#263238]/[0.06] hover:text-[#263238]"
       >
         <HistoryIcon className="h-4 w-4" />
         Saved
@@ -3548,23 +3819,25 @@ function UploadScreen({
           <button
             type="button"
             onClick={onResume}
-            className="mb-7 flex h-11 max-w-full items-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-black transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0c0f] active:translate-y-px"
+            className="mb-7 flex h-11 max-w-full items-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-black transition hover:bg-[#eeece5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] focus-visible:ring-offset-2 focus-visible:ring-offset-[#f4f2ec] active:translate-y-px"
           >
             <ArrowLeft className="h-4 w-4 shrink-0" />
             <span className="truncate">Continue {activeSceneName}</span>
           </button>
         ) : (
-          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-white/40">
-            Step 1 of 3
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#263238]/60">
+            IMAGE TO MOTION
           </p>
         )}
         <h1 className="mt-4 max-w-lg text-4xl font-medium tracking-[-0.055em] sm:text-5xl">
-          {onResume ? "Start another scene." : "Add a reference image."}
+          {onResume
+            ? "Start another scene."
+            : "Give your image a new perspective."}
         </h1>
-        <p className="mt-4 max-w-md text-base leading-6 text-white/55">
+        <p className="mt-4 max-w-md text-base leading-6 text-[#263238]/55">
           {onResume
             ? "Your current scene is still open. Choosing another image replaces it in the editor."
-            : "Then rotate the 3D scene and draw the camera path from any angle."}
+            : "Build a scene from your image, shape the camera move, and preview your shot before generating."}
         </p>
 
         <button
@@ -3577,7 +3850,7 @@ function UploadScreen({
             const file = event.dataTransfer.files[0];
             if (file) onDrop(file);
           }}
-          className="group relative mt-9 flex h-64 w-full items-center justify-center overflow-hidden border border-dashed border-white/25 bg-white/[0.03] text-left transition hover:border-white/50 hover:bg-white/[0.05] disabled:cursor-wait"
+          className="group relative mt-9 flex h-56 rounded-2xl w-full items-center justify-center overflow-hidden border border-dashed border-[#263238]/25 bg-[#263238]/[0.03] text-left transition hover:border-[#263238]/50 hover:bg-[#263238]/[0.05] disabled:cursor-wait"
         >
           {previewUrl ? (
             <>
@@ -3586,27 +3859,27 @@ function UploadScreen({
                 alt="Selected reference image"
                 className="absolute inset-0 h-full w-full object-cover opacity-40"
               />
-              <div className="absolute inset-0 bg-black/45" />
+              <div className="absolute inset-0 bg-[#263238]/45" />
             </>
           ) : null}
           <div className="relative flex flex-col items-center text-center">
             {posing ? (
               <>
-                <Loader2 className="h-7 w-7 animate-spin text-white/80" />
+                <Loader2 className="h-7 w-7 animate-spin text-[#263238]/80" />
                 <span className="mt-4 text-sm font-medium">
                   Preparing the 3D view
                 </span>
-                <span className="mt-1 text-xs text-white/45">
+                <span className="mt-1 text-xs text-[#263238]/60">
                   {Math.max(1, Math.round(poseElapsed / 1000))}s
                 </span>
               </>
             ) : (
               <>
-                <Upload className="h-7 w-7 text-white/60 transition group-hover:text-white" />
+                <Upload className="h-7 w-7 text-[#263238]/60 transition group-hover:text-[#263238]" />
                 <span className="mt-4 text-sm font-medium">
                   Choose an image
                 </span>
-                <span className="mt-1 text-xs text-white/40">
+                <span className="mt-1 text-xs text-[#263238]/60">
                   or drop / paste (Ctrl/⌘+V)
                 </span>
               </>
@@ -3618,7 +3891,7 @@ function UploadScreen({
           type="button"
           disabled={posing}
           onClick={onExample}
-          className="mt-4 flex w-full items-center gap-4 rounded-md border border-[#a9bcff]/30 bg-[#a9bcff]/10 p-3 text-left transition hover:bg-[#a9bcff]/20 disabled:opacity-50"
+          className="mt-4 flex w-full items-center gap-4 rounded-md border border-[#347f78]/30 bg-[#347f78]/10 p-3 text-left transition hover:bg-[#347f78]/20 disabled:opacity-50"
         >
           <img
             src={EXAMPLE_IMAGE}
@@ -3626,16 +3899,16 @@ function UploadScreen({
             className="h-16 w-24 rounded object-cover"
           />
           <span>
-            <span className="block text-sm font-semibold text-white">
+            <span className="block text-sm font-semibold text-[#263238]">
               Explore an example
             </span>
-            <span className="mt-1 block text-xs text-white/60">
+            <span className="mt-1 block text-xs text-[#263238]/60">
               Move cameras and preview a path · No signup needed
             </span>
           </span>
-          <Play className="ml-auto h-5 w-5 shrink-0 text-[#a9bcff]" />
+          <Play className="ml-auto h-5 w-5 shrink-0 text-[#347f78]" />
         </button>
-        {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
       </div>
     </main>
   );
@@ -3776,13 +4049,13 @@ function HistoryPanel({
   if (!open) return null;
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-[70] flex w-[min(28rem,100%)] flex-col border-l border-white/15 bg-[#111216]/98 shadow-2xl backdrop-blur-xl">
+    <aside className="fixed inset-y-0 right-0 z-[70] flex w-[min(28rem,100%)] flex-col border-l border-[#263238]/15 bg-[#eeece5]/98 shadow-lg backdrop-blur-xl">
       <div className="flex items-center justify-between px-5 pb-3 pt-4">
         <div>
           <h2 className="text-lg font-semibold tracking-[-0.025em]">
             Saved scenes
           </h2>
-          <p className="mt-0.5 text-xs text-white/40">
+          <p className="mt-0.5 text-xs text-[#263238]/60">
             Drafts stay in this browser. Videos expire after 7 days.
           </p>
         </div>
@@ -3790,7 +4063,7 @@ function HistoryPanel({
           type="button"
           onClick={onClose}
           aria-label="Close saved scenes"
-          className="grid h-9 w-9 place-items-center rounded-md text-white/50 transition hover:bg-white/10 hover:text-white"
+          className="grid h-9 w-9 place-items-center rounded-md text-[#263238]/50 transition hover:bg-[#263238]/10 hover:text-[#263238]"
         >
           <X className="h-4 w-4" />
         </button>
@@ -3799,7 +4072,7 @@ function HistoryPanel({
       <div
         role="tablist"
         aria-label="Saved scene views"
-        className="grid grid-cols-3 gap-1 border-b border-white/10 px-3 pb-3"
+        className="grid grid-cols-3 gap-1 border-b border-[#263238]/10 px-3 pb-3"
       >
         <HistoryTabButton
           active={activeTab === "favorites"}
@@ -3831,17 +4104,17 @@ function HistoryPanel({
         {activeTab === "favorites" &&
           (history.isLoading && drafts.isLoading && favoriteCount === 0 ? (
             <div className="grid h-24 place-items-center">
-              <Loader2 className="h-4 w-4 animate-spin text-white/45" />
+              <Loader2 className="h-4 w-4 animate-spin text-[#263238]/60" />
             </div>
           ) : favoriteCount === 0 ? (
-            <p className="rounded-lg border border-dashed border-white/10 px-3 py-8 text-center text-xs text-white/35">
+            <p className="rounded-lg border border-dashed border-[#263238]/10 px-3 py-8 text-center text-xs text-[#263238]/55">
               Star a video or path to keep it here.
             </p>
           ) : (
             <div className="space-y-5">
               {favoriteItems.length > 0 && (
                 <section>
-                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/40">
+                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#263238]/60">
                     Videos
                   </h3>
                   <div className="space-y-2">
@@ -3864,7 +4137,7 @@ function HistoryPanel({
               )}
               {favoriteDraftItems.length > 0 && (
                 <section>
-                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/40">
+                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#263238]/60">
                     Paths
                   </h3>
                   <div className="space-y-2">
@@ -3888,7 +4161,7 @@ function HistoryPanel({
         {activeTab === "generations" &&
           (history.isLoading && sortedItems.length === 0 ? (
             <div className="grid h-24 place-items-center">
-              <Loader2 className="h-4 w-4 animate-spin text-white/45" />
+              <Loader2 className="h-4 w-4 animate-spin text-[#263238]/60" />
             </div>
           ) : history.error && sortedItems.length === 0 ? (
             <p className="rounded-md border border-red-400/20 bg-red-950/40 p-3 text-sm text-red-200">
@@ -3899,7 +4172,7 @@ function HistoryPanel({
           ) : sortedItems.length > 0 ? (
             <div className="space-y-2">
               {history.isLoading && (
-                <p className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/55">
+                <p className="flex items-center gap-2 rounded-md border border-[#263238]/10 bg-[#263238]/[0.04] px-3 py-2 text-xs text-[#263238]/55">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Loading earlier generations…
                 </p>
@@ -3919,7 +4192,7 @@ function HistoryPanel({
               ))}
             </div>
           ) : (
-            <p className="rounded-lg border border-dashed border-white/10 px-3 py-8 text-center text-xs text-white/35">
+            <p className="rounded-lg border border-dashed border-[#263238]/10 px-3 py-8 text-center text-xs text-[#263238]/55">
               Generated versions will appear here.
             </p>
           ))}
@@ -3927,7 +4200,7 @@ function HistoryPanel({
         {activeTab === "drafts" &&
           (drafts.isLoading && sortedDraftItems.length === 0 ? (
             <div className="grid h-24 place-items-center">
-              <Loader2 className="h-4 w-4 animate-spin text-white/45" />
+              <Loader2 className="h-4 w-4 animate-spin text-[#263238]/60" />
             </div>
           ) : drafts.error && sortedDraftItems.length === 0 ? (
             <p className="rounded-md border border-red-400/20 bg-red-950/40 p-3 text-sm text-red-200">
@@ -3948,7 +4221,7 @@ function HistoryPanel({
               ))}
             </div>
           ) : (
-            <p className="rounded-lg border border-dashed border-white/10 px-3 py-8 text-center text-xs text-white/35">
+            <p className="rounded-lg border border-dashed border-[#263238]/10 px-3 py-8 text-center text-xs text-[#263238]/55">
               Generate or save a draft to keep the editable scene here.
             </p>
           ))}
@@ -3974,16 +4247,18 @@ function HistoryTabButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff]/70 ${
+      className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78]/70 ${
         active
-          ? "bg-white text-[#10131c]"
-          : "text-white/50 hover:bg-white/[0.06] hover:text-white"
+          ? "bg-white text-[#263238]"
+          : "text-[#263238]/50 hover:bg-[#263238]/[0.06] hover:text-[#263238]"
       }`}
     >
       <span className="truncate">{label}</span>
       <span
         className={`rounded-full px-1.5 py-0.5 text-[9px] tabular-nums ${
-          active ? "bg-black/10 text-black/55" : "bg-white/[0.07] text-white/40"
+          active
+            ? "bg-[#263238]/10 text-black/55"
+            : "bg-[#263238]/[0.07] text-[#263238]/60"
         }`}
       >
         {count}
@@ -4006,9 +4281,9 @@ function DraftItem({
   const [copied, setCopied] = useState(false);
 
   return (
-    <article className="rounded-lg border border-[#a9bcff]/20 bg-[#a9bcff]/[0.05] p-3">
+    <article className="rounded-lg border border-[#347f78]/20 bg-[#347f78]/[0.05] p-3">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] text-white/40">
+        <span className="text-[11px] text-[#263238]/60">
           {new Intl.DateTimeFormat(undefined, {
             month: "short",
             day: "numeric",
@@ -4018,19 +4293,19 @@ function DraftItem({
         </span>
         <div className="flex items-center gap-2">
           <StarButton starred={draft.starred} label="path" onChange={onStar} />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#c0cdff]">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#286c66]">
             Draft
           </span>
         </div>
       </div>
-      <p className="mt-2 line-clamp-2 text-sm leading-5 text-white/85">
+      <p className="mt-2 line-clamp-2 text-sm leading-5 text-[#263238]/85">
         {draft.prompt || "No prompt yet"}
       </p>
-      <p className="mt-2 text-xs text-white/35">
+      <p className="mt-2 text-xs text-[#263238]/55">
         {draft.point_count} controls · {draft.frame_count} frames · {draft.fps}{" "}
         FPS · {draft.aspect_ratio}
       </p>
-      <code className="mt-2 block select-all truncate text-[10px] text-white/35">
+      <code className="mt-2 block select-all truncate text-[10px] text-[#263238]/55">
         {draft.draft_id}
       </code>
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -4038,7 +4313,7 @@ function DraftItem({
           type="button"
           disabled={restoring}
           onClick={() => void onOpen(draft.draft_id)}
-          className="flex h-9 items-center justify-center gap-2 rounded-md bg-[#a9bcff] text-xs font-semibold text-[#10131c] transition hover:bg-[#c0cdff] active:translate-y-px disabled:cursor-wait disabled:opacity-40"
+          className="flex h-9 items-center justify-center gap-2 rounded-md bg-[#347f78] text-xs font-semibold text-white transition hover:bg-[#286c66] active:translate-y-px disabled:cursor-wait disabled:opacity-40"
         >
           {restoring ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4055,7 +4330,7 @@ function DraftItem({
               .then(() => setCopied(true))
               .catch(() => setCopied(false));
           }}
-          className="flex h-9 items-center justify-center gap-2 rounded-md border border-white/15 text-xs font-semibold text-white/65 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white active:translate-y-px"
+          className="flex h-9 items-center justify-center gap-2 rounded-md border border-[#263238]/15 text-xs font-semibold text-[#263238]/65 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] active:translate-y-px"
         >
           <Copy className="h-3.5 w-3.5" />
           {copied ? "ID copied" : "Copy ID"}
@@ -4087,9 +4362,9 @@ function QueueItem({
   const detailsId = `generation-details-${item.iteration_id}`;
 
   return (
-    <article className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+    <article className="rounded-lg border border-[#263238]/10 bg-[#263238]/[0.03] p-3">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] text-white/40">
+        <span className="text-[11px] text-[#263238]/60">
           {new Intl.DateTimeFormat(undefined, {
             month: "short",
             day: "numeric",
@@ -4105,7 +4380,7 @@ function QueueItem({
               onChange={onStarPath}
             />
           )}
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#c0cdff]">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#286c66]">
             {item.variants.length}{" "}
             {item.variants.length === 1 ? "video" : "videos"}
           </span>
@@ -4117,23 +4392,23 @@ function QueueItem({
         aria-controls={detailsId}
         aria-label={`${expanded ? "Collapse" : "Expand"} scene ${item.prompt}`}
         onClick={() => setExpanded((current) => !current)}
-        className="mt-1.5 flex w-full items-center gap-2 rounded-md px-1 py-2 text-left transition hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff]/70 active:translate-y-px"
+        className="mt-1.5 flex w-full items-center gap-2 rounded-md px-1 py-2 text-left transition hover:bg-[#263238]/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78]/70 active:translate-y-px"
       >
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-white/45 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`}
+          className={`h-4 w-4 shrink-0 text-[#263238]/60 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`}
         />
-        <span className="line-clamp-2 text-sm leading-5 text-white/85">
+        <span className="line-clamp-2 text-sm leading-5 text-[#263238]/85">
           {item.prompt}
         </span>
       </button>
       {expanded && (
         <div id={detailsId}>
-          <p className="mt-1 text-xs text-white/35">
+          <p className="mt-1 text-xs text-[#263238]/55">
             {item.target_frame_count} frames · {item.fps} FPS ·{" "}
             {item.aspect_ratio}
           </p>
-          <div className="mt-2 flex items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 py-1.5">
-            <code className="min-w-0 flex-1 select-all truncate text-[10px] text-white/45">
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-[#263238]/10 bg-[#263238]/20 px-2 py-1.5">
+            <code className="min-w-0 flex-1 select-all truncate text-[10px] text-[#263238]/60">
               {item.iteration_id}
             </code>
             <button
@@ -4144,7 +4419,7 @@ function QueueItem({
                   .then(() => setCopied(true))
                   .catch(() => setCopied(false));
               }}
-              className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-[#c0cdff] transition hover:text-white"
+              className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-[#286c66] transition hover:text-[#263238]"
             >
               <Copy className="h-3 w-3" />
               {copied ? "Copied" : "Copy iteration ID"}
@@ -4250,9 +4525,9 @@ function QueueVariant({
   });
 
   return (
-    <div className="rounded-md border border-white/10 bg-black/20 p-2">
+    <div className="rounded-md border border-[#263238]/10 bg-[#263238]/20 p-2">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-white/70">
+        <span className="text-xs font-medium text-[#263238]/70">
           Seed {variant.seed ?? "unknown"} · {variant.aspect_ratio}
         </span>
         <div className="flex items-center gap-2">
@@ -4265,7 +4540,7 @@ function QueueVariant({
               setRemoveError(null);
               setConfirmingRemove(true);
             }}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 text-white/35 transition hover:border-red-300/30 hover:bg-red-400/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 disabled:cursor-wait disabled:opacity-50"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#263238]/10 text-[#263238]/55 transition hover:border-red-300/30 hover:bg-red-400/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 disabled:cursor-wait disabled:opacity-50"
           >
             {removing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4283,8 +4558,8 @@ function QueueVariant({
               videoUrl
                 ? "text-emerald-300"
                 : failure
-                  ? "text-red-300"
-                  : "text-[#f4b860]"
+                  ? "text-red-700"
+                  : "text-[#96713d]"
             }`}
           >
             {state}
@@ -4293,7 +4568,7 @@ function QueueVariant({
       </div>
       {confirmingRemove && (
         <div className="mt-2 rounded-md border border-red-300/20 bg-red-950/30 p-2.5">
-          <p className="text-xs leading-5 text-red-100/85">
+          <p className="text-xs leading-5 text-red-800/85">
             Remove this version from Saved? The path and raw output stay
             available for recovery.
           </p>
@@ -4302,7 +4577,7 @@ function QueueVariant({
               type="button"
               disabled={removing}
               onClick={() => setConfirmingRemove(false)}
-              className="h-8 rounded-md px-3 text-xs font-semibold text-white/55 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+              className="h-8 rounded-md px-3 text-xs font-semibold text-[#263238]/55 transition hover:bg-[#263238]/[0.06] hover:text-[#263238] disabled:opacity-40"
             >
               Cancel
             </button>
@@ -4329,11 +4604,11 @@ function QueueVariant({
         </div>
       )}
       {removeError && (
-        <p className="mt-2 text-xs text-red-300">
+        <p className="mt-2 text-xs text-red-700">
           Could not remove this version: {removeError}
         </p>
       )}
-      {failure && <p className="mt-2 text-xs text-red-300">{failure}</p>}
+      {failure && <p className="mt-2 text-xs text-red-700">{failure}</p>}
       {videoUrl && (
         <div className="mt-2 space-y-2">
           <video
@@ -4347,7 +4622,7 @@ function QueueVariant({
               href={videoUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex h-9 items-center justify-center gap-2 rounded-md border border-white/15 text-xs font-semibold text-white/70 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white"
+              className="flex h-9 items-center justify-center gap-2 rounded-md border border-[#263238]/15 text-xs font-semibold text-[#263238]/70 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238]"
             >
               <Play className="h-3.5 w-3.5" />
               Open
@@ -4356,7 +4631,7 @@ function QueueVariant({
               href={videoUrl}
               download={downloadName}
               title={`Download ${downloadName}`}
-              className="flex h-9 items-center justify-center gap-2 rounded-md bg-white text-xs font-semibold text-black transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px"
+              className="flex h-9 items-center justify-center gap-2 rounded-md bg-white text-xs font-semibold text-black transition hover:bg-[#eeece5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
             >
               <Download className="h-3.5 w-3.5" />
               Download
@@ -4390,10 +4665,10 @@ function StarButton({
         setSaving(true);
         void onChange(!starred).finally(() => setSaving(false));
       }}
-      className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f4b860]/70 disabled:cursor-wait disabled:opacity-50 ${
+      className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d]/70 disabled:cursor-wait disabled:opacity-50 ${
         starred
-          ? "border-[#f4b860]/35 bg-[#f4b860]/15 text-[#f4b860] hover:bg-[#f4b860]/25"
-          : "border-white/10 text-white/35 hover:border-white/25 hover:bg-white/[0.06] hover:text-white/70"
+          ? "border-[#96713d]/35 bg-[#96713d]/15 text-[#96713d] hover:bg-[#96713d]/25"
+          : "border-[#263238]/10 text-[#263238]/55 hover:border-[#263238]/25 hover:bg-[#263238]/[0.06] hover:text-[#263238]/70"
       }`}
     >
       {saving ? (
