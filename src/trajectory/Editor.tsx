@@ -1831,8 +1831,8 @@ export function CameraTrajectoryPage({
               </h1>
               <p className="mt-0.5 text-xs text-[#263238]/60">
                 {views.length >= 2
-                  ? `3D path → ${frameCount} video frames`
-                  : "Draw, rotate, and continue"}
+                  ? `${views.length} cameras · ${(frameCount / fps).toFixed(1)} s`
+                  : "Choose a camera path"}
               </p>
             </div>
 
