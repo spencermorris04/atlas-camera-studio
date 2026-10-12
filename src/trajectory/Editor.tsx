@@ -1980,7 +1980,7 @@ export function CameraTrajectoryPage({
                 data-camera-drawing-panel-size={
                   DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.label
                 }
-                className={`absolute left-3 top-3 z-30 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-13rem)] max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg transition-[width] duration-200 backdrop-blur-xl xl:max-h-[calc(100%-11rem)] ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
+                className={`absolute left-3 top-3 z-30 max-h-[calc(100%-22rem)] sm:max-h-[calc(100%-17rem)] max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg transition-[width] duration-200 backdrop-blur-xl xl:max-h-[calc(100%-15rem)] ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
               >
                 <div className="mb-2 flex items-center gap-2.5 border-b border-[#263238]/10 pb-2">
                   <button
@@ -2195,23 +2195,85 @@ export function CameraTrajectoryPage({
                 </button>
               )}
 
-            {!inspecting && (
-              <div className="absolute inset-x-3 bottom-3 z-20 mx-auto max-w-6xl">
-                {error && (
-                  <div className="mb-2 rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-center text-xs text-red-800 backdrop-blur">
-                    {error}
-                  </div>
-                )}
-                {notice && (
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    className="mb-2 rounded-md border border-emerald-300/25 bg-emerald-50/95 px-3 py-2 text-center text-xs text-emerald-800 backdrop-blur"
-                  >
-                    {notice}
-                  </div>
-                )}
+            <div
+              data-studio-controls
+              className="absolute inset-x-3 bottom-3 z-40 mx-auto max-w-6xl"
+            >
+              {!inspecting && error && (
+                <div className="mb-2 rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-center text-xs text-red-800 backdrop-blur">
+                  {error}
+                </div>
+              )}
+              {!inspecting && notice && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mb-2 rounded-md border border-emerald-300/25 bg-emerald-50/95 px-3 py-2 text-center text-xs text-emerald-800 backdrop-blur"
+                >
+                  {notice}
+                </div>
+              )}
 
+              {views.length >= 2 && !placingDirectionTarget && (
+                <div className="mb-2 mx-auto flex max-w-3xl items-center gap-3 rounded-xl border border-[#263238]/10 bg-[#fffefa]/95 px-4 py-3 shadow-md backdrop-blur">
+                  <button
+                    type="button"
+                    aria-label={
+                      previewing
+                        ? "Pause camera preview"
+                        : "Play camera preview"
+                    }
+                    onClick={togglePathPreview}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#347f78] text-white"
+                  >
+                    {previewing ? (
+                      <Pause className="h-3.5 w-3.5" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex justify-between text-[10px] text-[#687579]">
+                      <span>Camera preview</span>
+                      <span className="tabular-nums">
+                        {(((previewProgress ?? 0) * frameCount) / fps).toFixed(
+                          2,
+                        )}{" "}
+                        / {(frameCount / fps).toFixed(2)}s
+                      </span>
+                    </div>
+                    <input
+                      aria-label="Camera preview timeline"
+                      type="range"
+                      min="0"
+                      max="1"
+                      step={1 / (frameCount - 1)}
+                      value={previewProgress ?? 0}
+                      onChange={(event) => {
+                        materializeSmoothedTrajectory();
+                        setPreviewing(false);
+                        setAddingPivot(false);
+                        setPreviewProgress(Number(event.target.value));
+                      }}
+                      className="block w-full accent-[#347f78]"
+                    />
+                  </div>
+                  {inspecting && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewing(false);
+                        setPreviewProgress(null);
+                      }}
+                      className="shrink-0 text-xs font-medium text-[#347f78]"
+                    >
+                      Edit path
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {!inspecting && (
                 <div
                   aria-hidden={placingDirectionTarget ? true : undefined}
                   inert={placingDirectionTarget ? true : undefined}
@@ -2289,65 +2351,8 @@ export function CameraTrajectoryPage({
                                 : `Queue ${seedCount} ${seedCount === 1 ? "video" : "videos"}`}
                   </button>
                 </div>
-              </div>
-            )}
-
-            {views.length >= 2 && !placingDirectionTarget && (
-              <div
-                className={`absolute inset-x-3 z-40 mx-auto flex max-w-3xl items-center gap-3 rounded-xl border border-[#263238]/10 bg-[#fffefa]/95 px-4 py-3 shadow-md backdrop-blur ${inspecting ? "bottom-5" : "bottom-52 sm:bottom-28 xl:bottom-24"}`}
-              >
-                <button
-                  type="button"
-                  aria-label={
-                    previewing ? "Pause camera preview" : "Play camera preview"
-                  }
-                  onClick={togglePathPreview}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#347f78] text-white"
-                >
-                  {previewing ? (
-                    <Pause className="h-3.5 w-3.5" />
-                  ) : (
-                    <Play className="h-3.5 w-3.5" />
-                  )}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex justify-between text-[10px] text-[#687579]">
-                    <span>Camera preview</span>
-                    <span className="tabular-nums">
-                      {(((previewProgress ?? 0) * frameCount) / fps).toFixed(2)}{" "}
-                      / {(frameCount / fps).toFixed(2)}s
-                    </span>
-                  </div>
-                  <input
-                    aria-label="Camera preview timeline"
-                    type="range"
-                    min="0"
-                    max="1"
-                    step={1 / (frameCount - 1)}
-                    value={previewProgress ?? 0}
-                    onChange={(event) => {
-                      materializeSmoothedTrajectory();
-                      setPreviewing(false);
-                      setAddingPivot(false);
-                      setPreviewProgress(Number(event.target.value));
-                    }}
-                    className="block w-full accent-[#347f78]"
-                  />
-                </div>
-                {inspecting && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPreviewing(false);
-                      setPreviewProgress(null);
-                    }}
-                    className="shrink-0 text-xs font-medium text-[#347f78]"
-                  >
-                    Edit path
-                  </button>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </main>
         </div>
       )}
@@ -2553,7 +2558,7 @@ function CameraDirectionPanel({
       id="camera-direction-panel"
       hidden={hidden}
       aria-label="Camera direction"
-      className="absolute right-3 top-3 z-20 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-11rem)] w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg backdrop-blur-xl"
+      className="absolute right-3 top-3 z-20 max-h-[calc(100%-22rem)] sm:max-h-[calc(100%-15rem)] w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg backdrop-blur-xl"
     >
       <div className="flex items-start justify-between gap-3 border-b border-[#263238]/10 pb-2.5">
         <div>
@@ -3330,41 +3335,6 @@ function TrajectoryDrawPad({
           : "Larger panel = finer moves. Every point-to-point section gets equal video time."}
       </p>
 
-      <button
-        type="button"
-        role="switch"
-        aria-checked={allowBelowFloor}
-        data-allow-below-floor={allowBelowFloor}
-        disabled={disabled}
-        onClick={() => onAllowBelowFloorChange(!allowBelowFloor)}
-        className={`mb-2 flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] disabled:opacity-30 ${
-          allowBelowFloor
-            ? "border-[#347f78]/45 bg-[#347f78]/10"
-            : "border-[#263238]/10 bg-[#263238]/[0.025] hover:border-[#263238]/20 hover:bg-[#263238]/[0.05]"
-        }`}
-      >
-        <span>
-          <span className="block text-[11px] font-semibold text-[#263238]/80">
-            Allow below floor
-          </span>
-          <span className="mt-0.5 block text-[9px] leading-3.5 text-[#263238]/60">
-            Turn on for underwater or underground shots.
-          </span>
-        </span>
-        <span
-          aria-hidden="true"
-          className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-            allowBelowFloor ? "bg-[#347f78]" : "bg-[#263238]/15"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-              allowBelowFloor ? "translate-x-[1.125rem]" : "translate-x-0.5"
-            }`}
-          />
-        </span>
-      </button>
-
       <div className="relative aspect-square overflow-hidden rounded-lg border border-[#263238]/15 bg-[#eeece5]">
         <svg
           viewBox="0 0 100 100"
@@ -3514,6 +3484,46 @@ function TrajectoryDrawPad({
           </div>
         )}
       </div>
+
+      <details className="mt-2 rounded-lg border border-[#263238]/10 bg-white p-2">
+        <summary className="cursor-pointer text-[10px] font-medium text-[#687579]">
+          Floor settings
+        </summary>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={allowBelowFloor}
+          data-allow-below-floor={allowBelowFloor}
+          disabled={disabled}
+          onClick={() => onAllowBelowFloorChange(!allowBelowFloor)}
+          className={`mb-2 flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] disabled:opacity-30 ${
+            allowBelowFloor
+              ? "border-[#347f78]/45 bg-[#347f78]/10"
+              : "border-[#263238]/10 bg-[#263238]/[0.025] hover:border-[#263238]/20 hover:bg-[#263238]/[0.05]"
+          }`}
+        >
+          <span>
+            <span className="block text-[11px] font-semibold text-[#263238]/80">
+              Allow below floor
+            </span>
+            <span className="mt-0.5 block text-[9px] leading-3.5 text-[#263238]/60">
+              Turn on for underwater or underground shots.
+            </span>
+          </span>
+          <span
+            aria-hidden="true"
+            className={`relative h-5 w-9 shrink-0 rounded-full transition ${
+              allowBelowFloor ? "bg-[#347f78]" : "bg-[#263238]/15"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                allowBelowFloor ? "translate-x-[1.125rem]" : "translate-x-0.5"
+              }`}
+            />
+          </span>
+        </button>
+      </details>
 
       <button
         type="button"
