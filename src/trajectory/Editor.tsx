@@ -1980,7 +1980,7 @@ export function CameraTrajectoryPage({
                 data-camera-drawing-panel-size={
                   DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.label
                 }
-                className={`absolute left-3 top-3 z-30 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-13rem)] max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[#263238]/15 bg-[#f4f2ec]/94 p-3 shadow-lg transition-[width] duration-200 backdrop-blur-xl xl:max-h-[calc(100%-11rem)] ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
+                className={`absolute left-3 top-3 z-30 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-13rem)] max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg transition-[width] duration-200 backdrop-blur-xl xl:max-h-[calc(100%-11rem)] ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
               >
                 <div className="mb-2 flex items-center gap-2.5 border-b border-[#263238]/10 pb-2">
                   <button
@@ -1999,7 +1999,7 @@ export function CameraTrajectoryPage({
                       Reference image
                     </p>
                     <p className="mt-0.5 text-[11px] text-[#263238]/55">
-                      Not frame 1
+                      Scene source
                     </p>
                     <p
                       className="mt-0.5 truncate text-[10px] text-[#263238]/55"
@@ -2109,7 +2109,7 @@ export function CameraTrajectoryPage({
                 aria-controls="trajectory-drawing-panel"
                 aria-expanded="false"
                 onClick={() => setDrawingPanelVisibility(true)}
-                className="absolute left-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#f4f2ec]/94 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
+                className="absolute left-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
               >
                 <PanelLeftOpen className="h-4 w-4" />
                 Path
@@ -2188,7 +2188,7 @@ export function CameraTrajectoryPage({
                   aria-controls="camera-direction-panel"
                   aria-expanded="false"
                   onClick={() => setDirectionPanelVisibility(true)}
-                  className="absolute right-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#f4f2ec]/94 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
+                  className="absolute right-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 px-3 text-xs font-semibold text-[#263238]/70 shadow-md backdrop-blur-xl transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
                 >
                   Aim
                   <PanelRightOpen className="h-4 w-4" />
@@ -2215,7 +2215,7 @@ export function CameraTrajectoryPage({
                 <div
                   aria-hidden={placingDirectionTarget ? true : undefined}
                   inert={placingDirectionTarget ? true : undefined}
-                  className={`flex flex-wrap items-end gap-2 rounded-xl border border-[#263238]/15 bg-[#f4f2ec]/92 p-2.5 pl-4 shadow-lg backdrop-blur-xl sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
+                  className={`flex flex-wrap items-end gap-2 rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-2.5 pl-4 shadow-lg backdrop-blur-xl sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
                 >
                   <OutputNumberInput
                     label="FOV°"
@@ -2553,7 +2553,7 @@ function CameraDirectionPanel({
       id="camera-direction-panel"
       hidden={hidden}
       aria-label="Camera direction"
-      className="absolute right-3 top-3 z-20 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-11rem)] w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-[#263238]/15 bg-[#f4f2ec]/94 p-3 shadow-lg backdrop-blur-xl"
+      className="absolute right-3 top-3 z-20 max-h-[calc(100%-18rem)] sm:max-h-[calc(100%-11rem)] w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg backdrop-blur-xl"
     >
       <div className="flex items-start justify-between gap-3 border-b border-[#263238]/10 pb-2.5">
         <div>
@@ -3285,7 +3285,7 @@ function TrajectoryDrawPad({
           <h2 className="text-sm font-semibold text-[#263238]">Camera path</h2>
         </div>
         <div
-          className="flex h-7 items-center overflow-hidden rounded-md border border-[#263238]/15 bg-[#263238]/25"
+          className="flex h-7 items-center overflow-hidden rounded-md border border-[#263238]/15 bg-[#263238]/[0.04]"
           aria-label="Drawing panel size"
         >
           <button
@@ -3859,7 +3859,7 @@ function UploadScreen({
                 alt="Selected reference image"
                 className="absolute inset-0 h-full w-full object-cover opacity-40"
               />
-              <div className="absolute inset-0 bg-[#263238]/45" />
+              <div className="absolute inset-0 bg-[#fffefa]/70" />
             </>
           ) : null}
           <div className="relative flex flex-col items-center text-center">
@@ -4096,7 +4096,7 @@ function HistoryPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {starError && (
-          <p className="mb-3 rounded-md border border-red-400/20 bg-red-950/40 p-3 text-xs text-red-200">
+          <p className="mb-3 rounded-md border border-red-400/20 bg-red-50 p-3 text-xs text-red-700">
             Could not update favorite: {starError}
           </p>
         )}
@@ -4164,7 +4164,7 @@ function HistoryPanel({
               <Loader2 className="h-4 w-4 animate-spin text-[#263238]/60" />
             </div>
           ) : history.error && sortedItems.length === 0 ? (
-            <p className="rounded-md border border-red-400/20 bg-red-950/40 p-3 text-sm text-red-200">
+            <p className="rounded-md border border-red-400/20 bg-red-50 p-3 text-sm text-red-700">
               {history.error instanceof Error
                 ? history.error.message
                 : "Could not load generations"}
@@ -4203,7 +4203,7 @@ function HistoryPanel({
               <Loader2 className="h-4 w-4 animate-spin text-[#263238]/60" />
             </div>
           ) : drafts.error && sortedDraftItems.length === 0 ? (
-            <p className="rounded-md border border-red-400/20 bg-red-950/40 p-3 text-sm text-red-200">
+            <p className="rounded-md border border-red-400/20 bg-red-50 p-3 text-sm text-red-700">
               {drafts.error instanceof Error
                 ? drafts.error.message
                 : "Could not load drafts"}
@@ -4407,7 +4407,7 @@ function QueueItem({
             {item.target_frame_count} frames · {item.fps} FPS ·{" "}
             {item.aspect_ratio}
           </p>
-          <div className="mt-2 flex items-center gap-2 rounded-md border border-[#263238]/10 bg-[#263238]/20 px-2 py-1.5">
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-[#263238]/10 bg-[#263238]/[0.04] px-2 py-1.5">
             <code className="min-w-0 flex-1 select-all truncate text-[10px] text-[#263238]/60">
               {item.iteration_id}
             </code>
@@ -4525,7 +4525,7 @@ function QueueVariant({
   });
 
   return (
-    <div className="rounded-md border border-[#263238]/10 bg-[#263238]/20 p-2">
+    <div className="rounded-md border border-[#263238]/10 bg-[#263238]/[0.04] p-2">
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs font-medium text-[#263238]/70">
           Seed {variant.seed ?? "unknown"} · {variant.aspect_ratio}
@@ -4540,7 +4540,7 @@ function QueueVariant({
               setRemoveError(null);
               setConfirmingRemove(true);
             }}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#263238]/10 text-[#263238]/55 transition hover:border-red-300/30 hover:bg-red-400/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 disabled:cursor-wait disabled:opacity-50"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#263238]/10 text-[#263238]/55 transition hover:border-red-300/30 hover:bg-red-400/10 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 disabled:cursor-wait disabled:opacity-50"
           >
             {removing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4556,7 +4556,7 @@ function QueueVariant({
           <span
             className={`text-[10px] font-semibold uppercase tracking-[0.06em] ${
               videoUrl
-                ? "text-emerald-300"
+                ? "text-emerald-700"
                 : failure
                   ? "text-red-700"
                   : "text-[#96713d]"
@@ -4567,7 +4567,7 @@ function QueueVariant({
         </div>
       </div>
       {confirmingRemove && (
-        <div className="mt-2 rounded-md border border-red-300/20 bg-red-950/30 p-2.5">
+        <div className="mt-2 rounded-md border border-red-300/20 bg-red-50 p-2.5">
           <p className="text-xs leading-5 text-red-800/85">
             Remove this version from Saved? The path and raw output stay
             available for recovery.

@@ -52,6 +52,16 @@ Drag a camera or its numbered point in the 3D view to move it; drag empty space 
 
 For development, run `npm run dev` and `npx vite` in separate terminals. The Vite app proxies API requests to port 3030.
 
+## Camera planning controls
+
+The editor uses a light theme with a teal camera path. The 3D cloud and drawing map use colors sampled from the reference image, with sRGB colors converted to linear values for Three.js rendering.
+
+Choose **Push in**, **Pull back**, **Truck right**, or **Orbit left** to replace the current path with five editable cameras. **Travel** controls the amount used by the next preset, relative to the subject distance. Presets start at the source camera; orbit cameras aim at the scene center. Undo restores your previous path.
+
+Use the **Camera preview** timeline to inspect any frame, play from that position, or pause. **Edit path** returns to the overview. Preview uses the same camera samples as generation and stays at the final frame when playback finishes.
+
+Select a camera to edit **Position X/Y/Z** precisely. Values commit on blur or Enter; Y stays above the floor unless **Allow below floor** is enabled. On smaller screens, opening the path or aim panel closes the other panel.
+
 ### Get an API key
 
 Join the [World Labs beta waitlist](https://form.typeform.com/to/zHFR4r3A) if you don't already have access. Signing up requests access; it does not immediately issue a key.
@@ -91,13 +101,3 @@ Tests exercise the original trajectory drawing and camera math, coordinate trans
 ## License and credits
 
 MIT. The editor, drawing controls, and trajectory math are adapted from the original camera-trajectory app created by [Gowthami Somepalli (@somepago)](https://github.com/somepago) at World Labs. Built with Three.js, React Three Fiber, Clerk, Stripe, and FFmpeg. World Labs API usage is subject to the service's own terms and charges.
-
-## Camera planning controls
-
-The editor uses a light theme with a teal camera path. The 3D cloud and drawing map use colors sampled from the reference image, with sRGB colors converted to linear values for Three.js rendering.
-
-Choose **Push in**, **Pull back**, **Truck right**, or **Orbit left** to replace the current path with five editable cameras. **Travel** controls the amount used by the next preset, relative to the subject distance. Presets start at the source camera; orbit cameras aim at the scene center. Undo restores your previous path.
-
-Use the **Camera preview** timeline to inspect any frame, play from that position, or pause. **Edit path** returns to the overview. Preview uses the same camera samples as generation and stays at the final frame when playback finishes.
-
-Select a camera to edit **Position X/Y/Z** precisely. Values commit on blur or Enter; Y stays above the floor unless **Allow below floor** is enabled. On smaller screens, opening the path or aim panel closes the other panel.
