@@ -1,4 +1,5 @@
 @import "tailwindcss";
+
 :root {
   font-family:
     Inter,
@@ -8,46 +9,184 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #f7f5ef;
-  background: #0b0c0f;
+  color: #263238;
+  background: #f4f2ec;
   font-synthesis: none;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --studio-bg: #f4f2ec;
+  --studio-surface: #fffefa;
+  --studio-inset: #eeece5;
+  --studio-text: #263238;
+  --studio-muted: #687579;
+  --studio-border: #d9ddd7;
+  --studio-accent: #347f78;
+  --studio-accent-hover: #286c66;
+  --studio-accent-wash: #e1efeb;
+  --studio-focus: #70a99e;
 }
+
 body {
+  min-width: 320px;
   margin: 0;
+  background: var(--studio-bg);
 }
+
 button,
 a,
 input,
 select {
   touch-action: manipulation;
 }
+
 button:not(:disabled),
 a {
   cursor: pointer;
 }
+
 button:disabled {
   cursor: not-allowed;
 }
+
+button,
+input,
+select {
+  font-family: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--studio-focus);
+  outline-offset: 2px;
+}
+
 .studio-shell {
   height: 100dvh;
   display: flex;
   flex-direction: column;
+  background: var(--studio-bg);
 }
+
+.studio-header {
+  z-index: 50;
+  min-height: 52px;
+  color: var(--studio-muted);
+  background: rgba(255, 254, 250, 0.96);
+  border-bottom: 1px solid var(--studio-border);
+  box-shadow: 0 2px 10px rgb(38 50 56 / 4%);
+}
+
+.studio-brand {
+  color: var(--studio-text);
+  font-size: 13px;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.studio-nav-link {
+  color: var(--studio-muted);
+  text-decoration: none;
+  transition: color 140ms ease;
+}
+
+.studio-nav-link:hover {
+  color: var(--studio-accent);
+}
+
+.studio-account-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: var(--studio-muted);
+}
+
+.studio-credit-balance,
+.studio-local-status {
+  color: var(--studio-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.studio-credit-balance {
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.studio-credit-balance:hover {
+  color: var(--studio-text);
+  background: var(--studio-inset);
+}
+
+.studio-verify-button {
+  color: #8a6128;
+  font-weight: 600;
+}
+
+.studio-select,
+.studio-outline-button {
+  min-height: 34px;
+  border: 1px solid var(--studio-border);
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  box-shadow: 0 1px 2px rgb(38 50 56 / 4%);
+}
+
+.studio-select:hover,
+.studio-outline-button:hover {
+  border-color: #b8c8c2;
+  background: var(--studio-accent-wash);
+}
+
+.studio-notice {
+  color: #725a2d;
+  background: #f8f0dc;
+  border-bottom: 1px solid #e9dcb9;
+}
+
+.studio-notice-dismiss {
+  padding: 0 4px;
+  color: #8b744a;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.studio-notice-dismiss:hover {
+  color: #57411f;
+}
+
 .studio-editor {
   min-height: 0;
   flex: 1;
 }
+
 .studio-editor > div {
   height: 100% !important;
   min-height: 100% !important;
 }
+
 .loading-screen {
   height: 100dvh;
   display: grid;
   place-content: center;
   gap: 12px;
+  color: var(--studio-text);
+  background: var(--studio-bg);
 }
+
 .cl-rootBox {
-  color: #111;
+  color: var(--studio-text);
+}
+
+@media (max-width: 640px) {
+  .studio-header {
+    padding-inline: 12px;
+  }
+
+  .studio-account-actions {
+    gap: 8px;
+  }
 }

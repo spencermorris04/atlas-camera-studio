@@ -145,15 +145,15 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
   };
   return (
     <div className="studio-shell">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#080b12] px-4 py-2 text-xs text-white/60">
+      <header className="studio-header flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-xs">
         <div className="flex items-center gap-4">
-          <span className="font-medium text-white/90">Atlas Camera Studio</span>
+          <span className="studio-brand font-semibold">Atlas Camera Studio</span>
           {config.repoUrl && (
             <a
               href={config.repoUrl}
               target="_blank"
               rel="noreferrer"
-              className="hover:text-white"
+              className="studio-nav-link"
             >
               GitHub
             </a>
@@ -162,7 +162,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
             href="https://atlas-beta.worldlabs.ai/docs/quickstart"
             target="_blank"
             rel="noreferrer"
-            className="hover:text-white"
+            className="studio-nav-link"
           >
             API docs
           </a>
@@ -170,16 +170,17 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
             href="https://form.typeform.com/to/zHFR4r3A"
             target="_blank"
             rel="noreferrer"
-            className="hover:text-white"
+            className="studio-nav-link"
           >
             Get API access
           </a>
         </div>
         {config.mode === "hosted" ? (
-          <div className="flex items-center gap-3">
+          <div className="studio-account-actions flex items-center gap-3">
             {auth.signedIn ? (
               <>
                 <button
+                  className="studio-credit-balance"
                   onClick={() => void refreshAccount()}
                   title="Refresh credits"
                 >
@@ -188,7 +189,10 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
                     : "Loading account…"}
                 </button>
                 {account && !account.phoneVerified && (
-                  <button className="text-amber-200" onClick={auth.openProfile}>
+                  <button
+                    className="studio-verify-button"
+                    onClick={auth.openProfile}
+                  >
                     Verify phone
                   </button>
                 )}
@@ -197,7 +201,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
                   value={packId}
                   onChange={(event) => setPackId(event.target.value)}
                   disabled={buying}
-                  className="rounded-lg border border-white/20 bg-[#080b12] px-2 py-1.5 text-white"
+                  className="studio-select rounded-lg px-2 py-1.5"
                 >
                   {config.creditPacks.map((pack) => (
                     <option key={pack.id} value={pack.id}>
@@ -206,7 +210,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
                   ))}
                 </select>
                 <button
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-white hover:bg-white/10 disabled:opacity-50"
+                  className="studio-outline-button rounded-lg px-3 py-1.5 disabled:opacity-50"
                   disabled={buying}
                   onClick={() => void checkout()}
                 >
@@ -216,7 +220,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
               </>
             ) : (
               <button
-                className="rounded-lg border border-white/20 px-3 py-1.5 text-white"
+                className="studio-outline-button rounded-lg px-3 py-1.5"
                 onClick={auth.openSignIn}
               >
                 Sign in · 3 free generations
@@ -224,16 +228,20 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
             )}
           </div>
         ) : (
-          <span>Using your API key</span>
+          <span className="studio-local-status">Using your API key</span>
         )}
       </header>
       {message && (
         <div
           role="status"
-          className="flex items-center justify-between gap-4 border-b border-amber-200/20 bg-amber-100/10 px-4 py-2 text-sm text-amber-100"
+          className="studio-notice flex items-center justify-between gap-4 px-5 py-2.5 text-sm"
         >
           <span>{message}</span>
-          <button aria-label="Dismiss notice" onClick={() => setMessage("")}>
+          <button
+            className="studio-notice-dismiss"
+            aria-label="Dismiss notice"
+            onClick={() => setMessage("")}
+          >
             ×
           </button>
         </div>
