@@ -72,11 +72,10 @@ select:focus-visible {
 
 .studio-header {
   z-index: 50;
-  min-height: 52px;
+  min-height: 48px;
   color: var(--studio-muted);
   background: rgba(255, 254, 250, 0.96);
   border-bottom: 1px solid var(--studio-border);
-  box-shadow: 0 2px 10px rgb(38 50 56 / 4%);
 }
 
 .studio-brand {
@@ -142,9 +141,16 @@ select:focus-visible {
 }
 
 .studio-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 70;
+  max-width: min(360px, calc(100vw - 32px));
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgb(38 50 56 / 10%);
   color: #725a2d;
   background: #f8f0dc;
-  border-bottom: 1px solid #e9dcb9;
+  border: 1px solid #e9dcb9;
 }
 
 .studio-notice-dismiss {

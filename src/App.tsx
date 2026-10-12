@@ -48,6 +48,8 @@ class EditorBoundary extends Component<
 function Studio({ config, auth }: { config: Config; auth: Auth }) {
   const [queryClient] = useState(() => new QueryClient());
   const [account, setAccount] = useState<Account | null>(null);
+  const [toolbarContainer, setToolbarContainer] =
+    useState<HTMLDivElement | null>(null);
   const [message, setMessage] = useState(() =>
     new URLSearchParams(location.search).get("checkout") === "success"
       ? "Payment submitted. Your credits will appear once payment is confirmed. You can return to your editor tab."
@@ -145,38 +147,48 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
   };
   return (
     <div className="studio-shell">
-      <header className="studio-header flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-xs">
-        <div className="flex items-center gap-4">
-          <span className="studio-brand font-semibold">
-            Atlas Camera Studio
-          </span>
-          {config.repoUrl && (
+      <header className="studio-header flex shrink-0 flex-wrap items-center gap-3 px-3 text-xs md:px-4">
+        <span className="studio-brand font-semibold">
+          <span className="hidden sm:inline">Atlas Camera Studio</span>
+          <span className="sm:hidden">Atlas</span>
+        </span>
+        <div ref={setToolbarContainer} className="ml-auto" />
+        <details className="studio-help relative">
+          <summary className="cursor-pointer list-none rounded px-2 py-2 text-[#687579] hover:text-[#263238]">
+            Help
+          </summary>
+          <nav
+            aria-label="Help links"
+            className="absolute right-0 top-full z-50 flex w-40 flex-col gap-3 rounded-lg border border-[#d9ddd7] bg-[#fffefa] p-4 shadow-lg"
+          >
+            {config.repoUrl && (
+              <a
+                href={config.repoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="studio-nav-link"
+              >
+                GitHub
+              </a>
+            )}
             <a
-              href={config.repoUrl}
+              href="https://atlas-beta.worldlabs.ai/docs/quickstart"
               target="_blank"
               rel="noreferrer"
               className="studio-nav-link"
             >
-              GitHub
+              API docs
             </a>
-          )}
-          <a
-            href="https://atlas-beta.worldlabs.ai/docs/quickstart"
-            target="_blank"
-            rel="noreferrer"
-            className="studio-nav-link"
-          >
-            API docs
-          </a>
-          <a
-            href="https://form.typeform.com/to/zHFR4r3A"
-            target="_blank"
-            rel="noreferrer"
-            className="studio-nav-link"
-          >
-            Get API access
-          </a>
-        </div>
+            <a
+              href="https://form.typeform.com/to/zHFR4r3A"
+              target="_blank"
+              rel="noreferrer"
+              className="studio-nav-link"
+            >
+              Get API access
+            </a>
+          </nav>
+        </details>
         {config.mode === "hosted" ? (
           <div className="studio-account-actions flex items-center gap-3">
             {auth.signedIn ? (
@@ -229,11 +241,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
               </button>
             )}
           </div>
-        ) : (
-          <span className="studio-local-status">
-            {config.apiConfigured ? "Local mode" : "Example only"}
-          </span>
-        )}
+        ) : null}
       </header>
       {message && (
         <div
@@ -254,6 +262,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
         <EditorBoundary>
           <QueryClientProvider client={queryClient}>
             <CameraTrajectoryPage
+              toolbarContainer={toolbarContainer}
               getToken={auth.getToken}
               canViewHistory={auth.signedIn}
               beforePrepare={ensureAccess}

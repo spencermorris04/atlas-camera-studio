@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -372,11 +373,13 @@ export function cameraTrajectoryDownloadName({
 }
 
 export function CameraTrajectoryPage({
+  toolbarContainer,
   getToken,
   canViewHistory,
   beforePrepare,
   beforeGenerate,
 }: {
+  toolbarContainer: HTMLDivElement | null;
   getToken: GetToken;
   canViewHistory: boolean;
   beforePrepare: () => boolean;
@@ -1817,79 +1820,73 @@ export function CameraTrajectoryPage({
           aria-hidden={homeOpen}
           inert={homeOpen ? true : undefined}
         >
-          {pose.depthUri === EXAMPLE_DEPTH && (
-            <div className="border-b border-[#263238]/10 bg-[#e1efeb] px-4 py-2 text-xs text-[#263238]/70">
-              Example scene. Edit the camera path or preview the shot.
-              {!canViewHistory &&
-                " Sign in and verify your phone only when you want to generate a video or upload your own image."}
-            </div>
-          )}
-          <header className="relative z-40 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-b border-[#263238]/10 bg-[#fffefa] px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:gap-3 md:px-4">
-            <div className="hidden md:block">
-              <h1 className="text-lg font-semibold tracking-[-0.025em]">
-                Plan the camera move
-              </h1>
-              <p className="mt-0.5 text-xs text-[#263238]/60">
-                {views.length >= 2
-                  ? `${views.length} cameras · ${(frameCount / fps).toFixed(1)} s`
-                  : "Choose a camera path"}
-              </p>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                aria-label="Undo"
-                title="Undo (⌘Z / Ctrl+Z)"
-                disabled={!edits.canUndo || submitting || savingDraft}
-                onClick={edits.undo}
-                className="grid h-11 w-11 place-items-center rounded-md border border-[#263238]/15 text-[#263238]/65 hover:bg-[#263238]/10 disabled:opacity-25"
-              >
-                <Undo2 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                aria-label="Redo"
-                title="Redo (⌘⇧Z / Ctrl+Shift+Z)"
-                disabled={!edits.canRedo || submitting || savingDraft}
-                onClick={edits.redo}
-                className="grid h-11 w-11 place-items-center rounded-md border border-[#263238]/15 text-[#263238]/65 hover:bg-[#263238]/10 disabled:opacity-25"
-              >
-                <Redo2 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setHistoryOpen(true)}
-                className="flex h-11 items-center justify-center gap-2 rounded-md border border-[#263238]/15 px-3 text-sm text-[#263238]/65 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] disabled:opacity-30"
-              >
-                <HistoryIcon className="h-4 w-4" />
-                <span className="hidden lg:inline">Saved</span>
-                {queueItems.some((item) =>
-                  item.variants.some((variant) => variant.video_uri === null),
-                ) && (
-                  <span className="rounded bg-[#347f78]/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#286c66]">
-                    {
-                      queueItems.filter((item) =>
-                        item.variants.some(
-                          (variant) => variant.video_uri === null,
-                        ),
-                      ).length
-                    }
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={goHome}
-                aria-label="Home"
-                title="Home"
-                className="flex h-11 items-center justify-center gap-2 rounded-md border border-[#263238]/15 px-3 text-sm text-[#263238]/65 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px disabled:opacity-30"
-              >
-                <House className="h-4 w-4" />
-                <span className="hidden sm:inline">Home</span>
-              </button>
-            </div>
-          </header>
+          {toolbarContainer &&
+            !homeOpen &&
+            createPortal(
+              <div className="flex items-center gap-3">
+                <span className="hidden text-[11px] text-[#687579] md:inline">
+                  {pose.depthUri === EXAMPLE_DEPTH ? "Example · " : ""}
+                  {views.length} cameras · {(frameCount / fps).toFixed(1)} s
+                </span>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    aria-label="Undo"
+                    title="Undo (⌘Z / Ctrl+Z)"
+                    disabled={!edits.canUndo || submitting || savingDraft}
+                    onClick={edits.undo}
+                    className="grid h-8 w-8 place-items-center rounded-md border border-transparent text-[#263238]/65 hover:bg-[#263238]/10 disabled:opacity-25"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Redo"
+                    title="Redo (⌘⇧Z / Ctrl+Shift+Z)"
+                    disabled={!edits.canRedo || submitting || savingDraft}
+                    onClick={edits.redo}
+                    className="grid h-8 w-8 place-items-center rounded-md border border-transparent text-[#263238]/65 hover:bg-[#263238]/10 disabled:opacity-25"
+                  >
+                    <Redo2 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOpen(true)}
+                    aria-label="Saved scenes"
+                    title="Saved scenes"
+                    className="flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 text-xs text-[#263238]/65 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] disabled:opacity-30"
+                  >
+                    <HistoryIcon className="h-4 w-4" />
+                    <span className="hidden lg:inline">Saved</span>
+                    {queueItems.some((item) =>
+                      item.variants.some(
+                        (variant) => variant.video_uri === null,
+                      ),
+                    ) && (
+                      <span className="rounded bg-[#347f78]/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#286c66]">
+                        {
+                          queueItems.filter((item) =>
+                            item.variants.some(
+                              (variant) => variant.video_uri === null,
+                            ),
+                          ).length
+                        }
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goHome}
+                    aria-label="Home"
+                    title="Home"
+                    className="flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 text-xs text-[#263238]/65 transition hover:border-[#263238]/30 hover:bg-[#263238]/[0.06] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px disabled:opacity-30"
+                  >
+                    <House className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>,
+              toolbarContainer,
+            )}
 
           <main className="relative min-h-0 flex-1 overflow-hidden bg-[#eeece5]">
             <div
