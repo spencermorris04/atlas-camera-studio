@@ -8,7 +8,7 @@ Based on the original camera-trajectory editor created by [Gowthami Somepalli (@
 
 This repository contains the complete React editor, Express server, camera math, job runner, and optional hosted-demo billing. The local version uses your own API key. Hosted mode adds Clerk phone verification and one-time Stripe credit packs; there is no Metronome dependency.
 
-![Draw and aim a camera path in the 3D editor](docs/editor.jpg)
+![Draw and aim a camera path in the 3D editor](docs/editor-light.png)
 
 ## Example videos
 
