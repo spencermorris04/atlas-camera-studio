@@ -14,6 +14,10 @@ export type PosedView = {
     focus: [number, number, number];
     positions: Float32Array;
     colors: Float32Array;
+    /** Compact vertex indices forming the surface triangulation. */
+    indices: Uint32Array;
+    /** Per-vertex uv, (u / width, 1 - v / height) for flipY textures. */
+    uvs: Float32Array;
     shape: [number, number];
     pointSize: number;
   };
@@ -100,6 +104,8 @@ async function decodeLocalPointCloud(
     focus: cloud.focus,
     positions,
     colors: cloud.colors,
+    indices: cloud.indices,
+    uvs: cloud.uvs,
     shape: [positions.length / 3, 1] as [number, number],
     pointSize: Math.max(0.003, cloud.medianDepth * 0.006),
   };
