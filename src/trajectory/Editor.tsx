@@ -2627,17 +2627,17 @@ function CameraDirectionPanel({
         )}
       </div>
 
-      {selectedPivot && selectedView && aim ? (
+      {selectedPivot && selectedView && selectedPosition && aim ? (
         <>
           <div className="mt-3 grid grid-cols-3 gap-2">
             {(["X", "Y", "Z"] as const).map((axis, index) => (
               <CameraPositionInput
                 key={`${selectedPivot.segmentId}:${selectedPivot.pointIndex}:${axis}`}
                 axis={axis}
-                value={selectedPosition![index]}
+                value={selectedPosition[index]}
                 min={axis === "Y" && !allowBelowFloor ? 0 : undefined}
                 onChange={(value) => {
-                  const position: TrajectoryPoint = [...selectedPosition!];
+                  const position: TrajectoryPoint = [...selectedPosition];
                   position[index] = value;
                   onPositionChange(selectedPivot, position);
                 }}
