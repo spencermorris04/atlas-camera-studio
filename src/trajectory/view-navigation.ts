@@ -4,7 +4,7 @@ import { Vector3, type Quaternion } from "three";
 export const VIEWER_NAVIGATION_KEYS = new Set(["w", "a", "s", "d", "q", "e"]);
 export const VIEWER_RESET_KEY = "r";
 /** One axis-button step, as a fraction of the current view distance. */
-export const VIEWER_AXIS_STEP = 0.3;
+export const VIEWER_AXIS_STEP = 0.1;
 /** Held-key speed, in view distances per second. */
 export const VIEWER_KEY_SPEED = 0.8;
 
@@ -36,6 +36,10 @@ export function viewerMovementFromKeys(
   horizontalForward.set(0, 0, -1).applyQuaternion(quaternion);
   horizontalRight.set(1, 0, 0).applyQuaternion(quaternion);
   horizontalForward.y = 0;
+  if (horizontalForward.lengthSq() < 1e-8) {
+    horizontalForward.set(0, 1, 0).applyQuaternion(quaternion);
+    horizontalForward.y = 0;
+  }
   horizontalRight.y = 0;
   if (
     horizontalForward.lengthSq() > 1e-8 &&

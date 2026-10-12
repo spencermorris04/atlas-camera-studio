@@ -195,3 +195,10 @@ select:focus-visible {
 .studio-floating-panel {
   max-height: calc(100% - var(--studio-controls-height, 180px) - 36px);
 }
+
+@media (max-width: 1023px) {
+  .studio-floating-panel {
+    top: 64px;
+    max-height: calc(100% - var(--studio-controls-height, 180px) - 88px);
+  }
+}

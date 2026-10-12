@@ -62,12 +62,13 @@ test("opposing keys cancel out", () => {
   assert.equal(movement(["q", "e"]).lengthSq(), 0);
 });
 
-test("vertical keys still work while looking straight down", () => {
+test("WASD and vertical keys work while looking straight down", () => {
   const straightDown = new Quaternion().setFromAxisAngle(
     new Vector3(1, 0, 0),
     -Math.PI / 2,
   );
-  assert.deepEqual(movement(["w"], straightDown).toArray(), [0, 0, 0]);
+  assert.ok(movement(["w"], straightDown).length() > 0.99);
+  assert.ok(movement(["a"], straightDown).length() > 0.99);
   assert.deepEqual(movement(["e"], straightDown).toArray(), [0, 1, 0]);
 });
 

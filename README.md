@@ -64,7 +64,7 @@ Select a camera to edit **Position X/Y/Z** precisely. Values commit on blur or E
 
 Navigate the scene with the X/Y/Z view buttons, WASD to move horizontally, and Q/E to move down/up. Drag to orbit; right-drag or Shift-drag to pan. **Reset view** (or R while the viewer is focused) returns to the default view. These controls move the editor viewpoint, not the cameras in your shot.
 
-The preview connects adjacent depth samples into textured surfaces to fill the gaps between points when viewing at an angle. It skips sharp depth jumps and unusually long edges to avoid stretching foreground objects into the background. Geometry hidden by the source image remains unobserved.
+The preview connects adjacent depth samples into textured surfaces to fill the gaps between points when viewing at an angle. It skips sharp depth jumps and accepts longer edges on grazing surfaces only when neighboring inverse-depth samples follow a consistent trend. Geometry hidden by the source image remains unobserved.
 
 ### Get an API key
 

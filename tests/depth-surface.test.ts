@@ -191,9 +191,9 @@ test("nonfinite and nonpositive depths never produce indices", () => {
   for (const index of indices) assert.ok(!corrupted.has(index));
 });
 
-test("custom thresholds tighten or loosen acceptance", () => {
-  // A 60 degree slope fits the default footprint scale but its edges are
-  // longer than 1x footprint, so tightening the limit rejects them.
+test("custom depth thresholds tighten or loosen acceptance", () => {
+  // A smooth slope passes the normal guards but a stricter depth-jump
+  // threshold rejects it.
   const cols = 6,
     rows = 5;
   const slope = (col: number) => 4 + 0.0075 * col * STRIDE;
@@ -208,6 +208,7 @@ test("custom thresholds tighten or loosen acceptance", () => {
     fx: FX,
     fy: FY,
     maxFootprintScale: 1,
+    maxDepthJump: 0.001,
   });
   assert.ok(relaxed.length > 0);
   assert.equal(tight.length, 0);
@@ -235,4 +236,35 @@ test("pixel footprint respects both focal lengths and diagonal spacing", () => {
     maxFootprintScale: 1.01,
   });
   assert.equal(indices.length, 3 * 3 * 6);
+});
+
+test("grazing floor keeps interior cells connected", () => {
+  const cols = 7,
+    rows = 7;
+  const positions: number[] = [],
+    depths: number[] = [];
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++) {
+      const depth = FX / (60 + y * STRIDE);
+      depths.push(depth);
+      positions.push(((x * STRIDE) / FX) * depth, -1, -depth);
+    }
+  const grid = {
+    cols,
+    rows,
+    vertexAt: Int32Array.from(depths, (_, i) => i),
+    depthAt: Float32Array.from(depths),
+    positions: Float32Array.from(positions),
+  };
+  const indices = triangulateDepthSurface(grid, {
+    stride: STRIDE,
+    fx: FX,
+    fy: FY,
+  });
+  assert.ok(
+    indices.length > 0,
+    "a smooth floor at a shallow angle must not disappear",
+  );
+  const cells = new Set(indices);
+  assert.ok(cells.has(3 * cols + 3), "the middle of the floor remains covered");
 });

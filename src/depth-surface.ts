@@ -1,7 +1,7 @@
 // Connect the sampled image grid without stretching it across depth edges.
 // Missing samples are skipped. A cell with three valid corners keeps one
-// triangle; otherwise use the shorter valid diagonal. Edge lengths are capped
-// relative to their projected pixel spacing at the nearer depth. Positions may
+// triangle; otherwise use the shorter valid diagonal. Long edges require a
+// consistent inverse-depth trend. Positions may
 // be in camera or world coordinates because rigid transforms preserve length.
 
 export type DepthSurfaceGrid = {
@@ -21,7 +21,7 @@ export type DepthSurfaceOptions = {
   stride: number;
   fx: number;
   fy: number;
-  /** Edge length limit in pixel footprints at that depth. Default 7. */
+  /** Longer edges need a consistent neighboring depth trend. Default 7 footprints. */
   maxFootprintScale?: number;
   /** Maximum relative depth change across an edge. Default 0.12. */
   maxDepthJump?: number;
@@ -58,7 +58,50 @@ export function triangulateDepthSurface(
     const dx = positions[j]! - positions[i]!,
       dy = positions[j + 1]! - positions[i + 1]!,
       dz = positions[j + 2]! - positions[i + 2]!;
-    return dx * dx + dy * dy + dz * dz <= limitSquared;
+    const lengthSquared = dx * dx + dy * dy + dz * dz;
+    if (!Number.isFinite(lengthSquared)) return false;
+    if (lengthSquared <= limitSquared) return true;
+
+    // Inverse depth varies linearly across a plane in the source image.
+    // A grazing floor has long 3D edges but the same trend on both sides;
+    // an occlusion step has a different trend before and after the edge.
+    const ax = a % cols,
+      ay = Math.floor(a / cols);
+    const bx = b % cols,
+      by = Math.floor(b / cols);
+    const stepX = bx - ax,
+      stepY = by - ay;
+    const px = ax - stepX,
+      py = ay - stepY;
+    const nx = bx + stepX,
+      ny = by + stepY;
+    if (
+      px < 0 ||
+      py < 0 ||
+      nx < 0 ||
+      ny < 0 ||
+      px >= cols ||
+      nx >= cols ||
+      py >= rows ||
+      ny >= rows
+    )
+      return false;
+    const prev = py * cols + px,
+      next = ny * cols + nx;
+    if (
+      vertexAt[prev] < 0 ||
+      vertexAt[next] < 0 ||
+      !finitePositive(depthAt[prev]) ||
+      !finitePositive(depthAt[next])
+    )
+      return false;
+    const slope = 1 / db - 1 / da;
+    if (Math.abs(slope) < 1e-6) return false;
+    const tolerance = Math.abs(slope) * 0.25 + 1e-6;
+    return (
+      Math.abs(1 / da - 1 / depthAt[prev] - slope) <= tolerance &&
+      Math.abs(1 / depthAt[next] - 1 / db - slope) <= tolerance
+    );
   };
 
   const diagonalLengthSq = (a: number, b: number) => {

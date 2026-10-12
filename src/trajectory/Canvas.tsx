@@ -63,12 +63,6 @@ const SELECTED_CAMERA_DARK_TEAL = "#21423d";
 const STUDIO_BACKGROUND = "#eeece5";
 const PREVIEW_PROGRESS_REPORT_INTERVAL = 1 / 12;
 
-/** Surface buffers the depth-mesh pipeline adds after integration. */
-type PoseSurfacePoints = PosedView["points"] & {
-  indices?: Uint32Array;
-  uvs?: Float32Array;
-};
-
 type CameraTrajectoryCanvasProps = {
   pose: PosedView;
   referenceView: CameraView;
@@ -117,7 +111,8 @@ type CameraTrajectoryCanvasProps = {
 export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
   const { pose, referenceView, segments } = props;
   const inspecting = props.previewing || props.previewProgress !== null;
-  const navigating = !inspecting && !props.placingDirectionTarget;
+  const navigating =
+    !inspecting && !props.placingDirectionTarget && !props.addingPivot;
   const viewer = useRef<HTMLDivElement>(null);
   const navigationKeys = useRef(new Set<string>());
   // Outstanding axis-button movement in step units; consumed by the scene's
@@ -127,17 +122,17 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
     () => cameraPathTarget(referenceView, pose.centroidWorld),
     [pose.centroidWorld, referenceView],
   );
-  const [overviewHome, setOverviewHome] = useState(() => ({
+  const [defaultHome] = useState(() => ({
     position: buildOverviewPosition(referenceView.position, target, segments),
   }));
-
+  const [overviewHome, setOverviewHome] = useState(defaultHome);
+  const [resetVersion, setResetVersion] = useState(0);
   const resetView = useCallback(() => {
     navigationKeys.current.clear();
     pendingAxisMove.current.set(0, 0, 0);
-    setOverviewHome({
-      position: buildOverviewPosition(referenceView.position, target, segments),
-    });
-  }, [referenceView.position, segments, target]);
+    setOverviewHome({ position: [...defaultHome.position] });
+    setResetVersion((version) => version + 1);
+  }, [defaultHome]);
 
   useEffect(() => {
     const clearInput = () => {
@@ -167,6 +162,10 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
     pressed: boolean,
   ) {
     const key = event.key.toLowerCase();
+    if (!pressed) {
+      navigationKeys.current.delete(key);
+      return;
+    }
     if (key === VIEWER_RESET_KEY) {
       if (
         pressed &&
@@ -194,6 +193,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
     pendingAxisMove.current.add(
       worldAxisDirection(axis, positive, new THREE.Vector3()),
     );
+    viewer.current?.focus({ preventScroll: true });
   }, []);
 
   return (
@@ -220,58 +220,56 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
       }
       onKeyDown={(event) => updateNavigationKey(event, true)}
       onKeyUp={(event) => updateNavigationKey(event, false)}
-      onBlur={() => navigationKeys.current.clear()}
+      onBlur={(event) => {
+        navigationKeys.current.clear();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          pendingAxisMove.current.set(0, 0, 0);
+        }
+      }}
     >
-      {!inspecting && !props.placingDirectionTarget && (
-        <>
-          <button
-            type="button"
-            title="Reset 3D view"
-            aria-label="Reset 3D view"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={resetView}
-            className="absolute left-1/2 top-3 z-30 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-md border border-[#263238]/15 bg-[#fffefa]/90 px-3 text-[11px] font-semibold tracking-[0.02em] text-[#263238]/65 shadow-lg backdrop-blur transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#70a99e] active:translate-y-px"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reset view
-          </button>
-          <p className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border border-[#263238]/10 bg-[#fffefa]/80 px-3 py-1 text-[10px] font-medium text-[#263238]/55 shadow-sm backdrop-blur">
-            Drag to orbit · Right-drag to pan · WASD move · Q/E down/up
-          </p>
-          <div className="absolute right-3 top-1/2 z-30 -translate-y-1/2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/90 p-2 shadow-lg backdrop-blur">
-            <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#263238]/50">
-              Move view
-            </p>
-            <div className="grid gap-1">
-              {(["x", "y", "z"] as const).map((axis) => (
-                <div key={axis} className="flex gap-1">
-                  {([false, true] as const).map((positive) => (
-                    <button
-                      key={positive ? "+" : "-"}
-                      type="button"
-                      aria-label={`Move view along world ${axis.toUpperCase()} ${positive ? "positive" : "negative"}`}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={() => nudgeView(axis, positive)}
-                      className="h-7 w-11 rounded border border-[#263238]/15 bg-[#fffefa] text-[11px] font-semibold text-[#263238]/65 transition hover:border-[#347f78]/50 hover:text-[#347f78] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
-                    >
-                      {axis.toUpperCase()}
-                      {positive ? "+" : "−"}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
+      {navigating && (
+        <nav
+          aria-label="Scene navigation"
+          className="studio-view-controls absolute left-1/2 top-3 z-40 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 p-2 shadow-sm backdrop-blur"
+        >
+          <div className="flex items-center gap-2">
+            <span className="hidden text-[10px] font-medium text-[#687579] md:inline">
+              View
+            </span>
+            {(["x", "y", "z"] as const).map((axis) => (
+              <div key={axis} className="flex gap-0.5">
+                {([false, true] as const).map((positive) => (
+                  <button
+                    key={positive ? "+" : "-"}
+                    type="button"
+                    aria-label={`Move view along world ${axis.toUpperCase()} ${positive ? "positive" : "negative"}`}
+                    title={`Move view on ${axis.toUpperCase()}`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => nudgeView(axis, positive)}
+                    className="h-8 w-8 rounded-md border border-[#263238]/10 bg-white text-[11px] font-medium text-[#263238] hover:border-[#347f78]/50 hover:text-[#347f78]"
+                  >
+                    {axis.toUpperCase()}
+                    {positive ? "+" : "−"}
+                  </button>
+                ))}
+              </div>
+            ))}
             <button
               type="button"
+              title="Reset view (R)"
+              aria-label="Reset 3D view"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={resetView}
-              className="mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded border border-[#263238]/15 bg-[#fffefa] text-[10px] font-semibold text-[#263238]/65 transition hover:border-[#263238]/30 hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#347f78] active:translate-y-px"
+              className="flex h-8 items-center gap-1.5 rounded-md border border-[#263238]/10 px-2 text-[11px] font-medium text-[#263238] hover:text-[#347f78]"
             >
-              <RotateCcw className="h-3 w-3" />
-              Reset view
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">Reset view</span>
             </button>
           </div>
-        </>
+          <p className="mt-1.5 hidden whitespace-nowrap text-center text-[9px] text-[#687579] md:block">
+            Drag: orbit · Right-drag: pan · WASD: move · Q/E: down/up
+          </p>
+        </nav>
       )}
       {props.placingDirectionTarget && (
         <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[#96713d]/40 bg-[#fffefa]/95 p-1.5 pl-3 text-xs font-semibold text-[#96713d] shadow-xl backdrop-blur">
@@ -306,6 +304,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
           {...props}
           target={target}
           overviewHome={overviewHome}
+          resetVersion={resetVersion}
           navigationKeys={navigationKeys}
           pendingAxisMove={pendingAxisMove}
         />
@@ -389,17 +388,18 @@ function CameraTrajectoryScene({
   onDirectionTargetMiss,
   target,
   overviewHome,
+  resetVersion,
   navigationKeys,
   pendingAxisMove,
 }: CameraTrajectoryCanvasProps & {
   target: [number, number, number];
   overviewHome: { position: [number, number, number] };
+  resetVersion: number;
   navigationKeys: RefObject<Set<string>>;
   pendingAxisMove: RefObject<THREE.Vector3>;
 }) {
   const inspecting = previewing || previewProgress !== null;
   const overviewCamera = useThree((state) => state.camera);
-  const gl = useThree((state) => state.gl);
   const controls = useRef<OrbitControlsImpl>(null);
   const [draggingHandle, setDraggingHandle] = useState(false);
   const lastReportedQuaternion = useRef<THREE.Quaternion | null>(null);
@@ -465,43 +465,23 @@ function CameraTrajectoryScene({
 
   // Switching to preview or picking must not leave held keys queued.
   useEffect(() => {
-    if (!inspecting) return;
+    if (
+      !inspecting &&
+      !addingPivot &&
+      !placingDirectionTarget &&
+      !draggingHandle
+    )
+      return;
     navigationKeys.current.clear();
     pendingAxisMove.current.set(0, 0, 0);
-  }, [inspecting, navigationKeys, pendingAxisMove]);
-
-  // Shift+left-drag pans. OrbitControls reads its mouse-button mapping during
-  // its own pointerdown, so swap the mapping in the capture phase before it
-  // runs, and restore orbit on release.
-  useEffect(() => {
-    const canvas = gl.domElement;
-    const handlePointerDown = (event: PointerEvent) => {
-      const activeControls = controls.current;
-      if (
-        !activeControls ||
-        event.target !== canvas ||
-        event.pointerType !== "mouse" ||
-        event.button !== 0 ||
-        !event.shiftKey
-      ) {
-        return;
-      }
-      activeControls.mouseButtons.LEFT = THREE.MOUSE.PAN;
-    };
-    const restoreOrbit = () => {
-      const activeControls = controls.current;
-      if (activeControls) activeControls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
-    };
-    window.addEventListener("pointerdown", handlePointerDown, true);
-    window.addEventListener("pointerup", restoreOrbit, true);
-    window.addEventListener("pointercancel", restoreOrbit, true);
-    return () => {
-      restoreOrbit();
-      window.removeEventListener("pointerdown", handlePointerDown, true);
-      window.removeEventListener("pointerup", restoreOrbit, true);
-      window.removeEventListener("pointercancel", restoreOrbit, true);
-    };
-  }, [gl]);
+  }, [
+    inspecting,
+    addingPivot,
+    placingDirectionTarget,
+    draggingHandle,
+    navigationKeys,
+    pendingAxisMove,
+  ]);
 
   useFrame((_, delta) => {
     const activeControls = controls.current;
@@ -706,6 +686,7 @@ function CameraTrajectoryScene({
       )}
 
       <OrbitControls
+        key={resetVersion}
         ref={controls}
         makeDefault
         enabled={
@@ -1525,9 +1506,9 @@ function PosedPointCloud({
     pointGeometry.setAttribute("position", position);
     pointGeometry.setAttribute("color", color);
 
-    const surface = pose.points as PoseSurfacePoints;
+    const surface = pose.points;
     let surfaceGeometry: THREE.BufferGeometry | null = null;
-    if (surface.indices?.length && surface.uvs?.length) {
+    if (surface.indices.length) {
       surfaceGeometry = new THREE.BufferGeometry();
       surfaceGeometry.setAttribute("position", position);
       surfaceGeometry.setAttribute(
