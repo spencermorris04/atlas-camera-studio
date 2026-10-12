@@ -1,6 +1,7 @@
 import { EXAMPLE_DEPTH, EXAMPLE_IMAGE, EXAMPLE_HANDOFF } from "../example";
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -137,7 +138,7 @@ const FIRST_GENERATION_SEED = 42;
 const MAX_DEPTH_ANCHORS = 16;
 const DRAWING_PANEL_SIZES = [
   { label: "Small", widthClass: "w-64" },
-  { label: "Medium", widthClass: "w-[20rem]" },
+  { label: "Medium", widthClass: "w-[18rem]" },
   { label: "Large", widthClass: "w-[34rem]" },
   { label: "Full", widthClass: "w-[44rem]" },
 ] as const;
@@ -1750,6 +1751,21 @@ export function CameraTrajectoryPage({
     setError(null);
   }
 
+  const observeControlsDock = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const main = node.closest("main");
+    if (!main) return;
+    const updateHeight = () =>
+      main.style.setProperty(
+        "--studio-controls-height",
+        `${node.offsetHeight}px`,
+      );
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   function setDrawingPanelVisibility(open: boolean) {
     setDrawingPanelOpen(open);
     if (open && window.innerWidth < 1024) setDirectionPanelOpen(false);
@@ -1980,7 +1996,7 @@ export function CameraTrajectoryPage({
                 data-camera-drawing-panel-size={
                   DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.label
                 }
-                className={`absolute left-3 top-3 z-30 max-h-[calc(100%-22rem)] sm:max-h-[calc(100%-17rem)] max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg transition-[width] duration-200 backdrop-blur-xl xl:max-h-[calc(100%-15rem)] ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
+                className={`absolute left-3 top-3 z-30 studio-floating-panel max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg transition-[width] duration-200 backdrop-blur-xl  ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
               >
                 <div className="mb-2 flex items-center gap-2.5 border-b border-[#263238]/10 pb-2">
                   <button
@@ -1997,9 +2013,6 @@ export function CameraTrajectoryPage({
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#96713d]">
                       Reference image
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-[#263238]/55">
-                      Scene source
                     </p>
                     <p
                       className="mt-0.5 truncate text-[10px] text-[#263238]/55"
@@ -2023,11 +2036,14 @@ export function CameraTrajectoryPage({
                   </button>
                 </div>
 
-                <div className="mb-3 rounded-lg border border-[#263238]/10 bg-white p-3">
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#687579]">
-                    Start with a camera move
-                  </p>
-                  <div className="grid grid-cols-2 gap-1.5">
+                <details
+                  open={path.length < 2}
+                  className="mb-3 rounded-lg border border-[#263238]/10 bg-white p-3"
+                >
+                  <summary className="cursor-pointer text-[11px] font-medium text-[#347f78]">
+                    Camera move presets
+                  </summary>
+                  <div className="mt-3 grid grid-cols-2 gap-1.5">
                     {CAMERA_MOVE_PRESETS.map((preset) => (
                       <button
                         key={preset.id}
@@ -2061,7 +2077,7 @@ export function CameraTrajectoryPage({
                       {Math.round(moveAmount * 100)}%
                     </span>
                   </label>
-                </div>
+                </details>
                 <TrajectoryDrawPad
                   points={trajectoryMap.worldPoints}
                   colors={trajectoryMap.colors}
@@ -2197,6 +2213,7 @@ export function CameraTrajectoryPage({
 
             <div
               data-studio-controls
+              ref={observeControlsDock}
               className="absolute inset-x-3 bottom-3 z-40 mx-auto max-w-6xl"
             >
               {!inspecting && error && (
@@ -2558,7 +2575,7 @@ function CameraDirectionPanel({
       id="camera-direction-panel"
       hidden={hidden}
       aria-label="Camera direction"
-      className="absolute right-3 top-3 z-20 max-h-[calc(100%-22rem)] sm:max-h-[calc(100%-15rem)] w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg backdrop-blur-xl"
+      className="absolute right-3 top-3 z-20 studio-floating-panel w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-xl border border-[#263238]/15 bg-[#fffefa]/95 p-3 shadow-lg backdrop-blur-xl"
     >
       <div className="flex items-start justify-between gap-3 border-b border-[#263238]/10 pb-2.5">
         <div>
@@ -3332,7 +3349,7 @@ function TrajectoryDrawPad({
       <p className="mb-2 text-[10px] leading-4 text-[#263238]/60">
         {addingPivot
           ? "Click the teal path in the main 3D view."
-          : "Larger panel = finer moves. Every point-to-point section gets equal video time."}
+          : "Draw a route. Each section gets equal video time."}
       </p>
 
       <div className="relative aspect-square overflow-hidden rounded-lg border border-[#263238]/15 bg-[#eeece5]">

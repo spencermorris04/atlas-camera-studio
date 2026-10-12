@@ -190,3 +190,8 @@ select:focus-visible {
     gap: 8px;
   }
 }
+
+/* Reserve the measured dock height as controls wrap or messages appear. */
+.studio-floating-panel {
+  max-height: calc(100% - var(--studio-controls-height, 180px) - 36px);
+}
