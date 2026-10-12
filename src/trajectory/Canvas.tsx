@@ -42,12 +42,12 @@ import {
 } from "./camera-trajectory";
 
 const PATH_SAMPLES = 101;
-const PATH_COLOR = "#0d9488";
-const PATH_ADDING_COLOR = "#2dd4bf";
-const HANDLE_COLOR = "#14b8a6";
-const SELECTED_CAMERA_TEAL = "#0f766e";
-const SELECTED_CAMERA_DARK_TEAL = "#042f2e";
-const STUDIO_BACKGROUND = "#eceef1";
+const PATH_COLOR = "#347f78";
+const PATH_ADDING_COLOR = "#70a99e";
+const HANDLE_COLOR = "#70a99e";
+const SELECTED_CAMERA_TEAL = "#286c66";
+const SELECTED_CAMERA_DARK_TEAL = "#21423d";
+const STUDIO_BACKGROUND = "#eeece5";
 const PREVIEW_PROGRESS_REPORT_INTERVAL = 1 / 12;
 const VIEWER_KEYS = new Set(["w", "a", "s", "d"]);
 
@@ -157,7 +157,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
             ? "set"
             : "idle"
       }
-      className={`relative h-full w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#14b8a6]/60 ${props.placingDirectionTarget ? "cursor-crosshair" : ""}`}
+      className={`relative h-full w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#70a99e]/60 ${props.placingDirectionTarget ? "cursor-crosshair" : ""}`}
       onPointerDown={(event) =>
         event.currentTarget.focus({ preventScroll: true })
       }
@@ -181,14 +181,14 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
               ),
             });
           }}
-          className="absolute left-1/2 top-3 z-30 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-md border border-white/15 bg-[#0b0c0f]/90 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/65 shadow-lg backdrop-blur transition hover:border-white/30 hover:bg-[#17181d] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6] active:translate-y-px"
+          className="absolute left-1/2 top-3 z-30 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-md border border-[#263238]/15 bg-[#fffefa]/90 px-3 text-[11px] font-semibold tracking-[0.02em] text-[#263238]/65 shadow-lg backdrop-blur transition hover:border-[#263238]/30 hover:bg-[#fffefa] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#70a99e] active:translate-y-px"
         >
           <RotateCcw className="h-3.5 w-3.5" />
           Reset view
         </button>
       )}
       {props.placingDirectionTarget && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[#f4b860]/40 bg-[#0b0c0f]/95 p-1.5 pl-3 text-xs font-semibold text-[#ffd18d] shadow-xl backdrop-blur">
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[#96713d]/40 bg-[#fffefa]/95 p-1.5 pl-3 text-xs font-semibold text-[#96713d] shadow-xl backdrop-blur">
           <span id="look-at-picker-instruction">
             {props.placingDirectionTargetMode === "look_away"
               ? "Click the point to look away from"
@@ -198,7 +198,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
             type="button"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={props.onDirectionTargetCancel}
-            className="pointer-events-auto h-7 rounded border border-white/15 px-2 text-[10px] text-white/65 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f4b860]"
+            className="pointer-events-auto h-7 rounded border border-[#263238]/15 px-2 text-[10px] text-[#263238]/65 transition hover:bg-[#263238]/[0.04] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d]"
           >
             Cancel
           </button>
@@ -246,7 +246,7 @@ export function CameraPointCloudView({
       dpr={[1, 1.5]}
       frameloop="demand"
       gl={{ antialias: false }}
-      onCreated={({ gl }) => gl.setClearColor("#090a0d")}
+      onCreated={({ gl }) => gl.setClearColor("#eeece5")}
     >
       <PosedPointCloud pose={pose} scaleMultiplier={0.7} />
       <CameraPointCloudViewCamera view={view} />
@@ -437,10 +437,10 @@ function CameraTrajectoryScene({
           position={[0, -0.002, 0]}
           cellSize={0.5}
           cellThickness={0.5}
-          cellColor="#d7dade"
+          cellColor="#d9ddd7"
           sectionSize={2.5}
           sectionThickness={0.8}
-          sectionColor="#bcc1c8"
+          sectionColor="#c2c9c2"
           infiniteGrid
           fadeDistance={30}
           fadeStrength={1.5}
@@ -548,7 +548,7 @@ function CameraTrajectoryScene({
                 quaternion: referenceView.quaternion,
               },
             }}
-            color="#f4b860"
+            color="#96713d"
             depth={markerDepth * 0.75}
             overlay
           />
@@ -558,8 +558,8 @@ function CameraTrajectoryScene({
             zIndexRange={[20, 0]}
             className="pointer-events-none"
           >
-            <div className="whitespace-nowrap rounded border border-[#f4b860]/50 bg-[#17181d]/90 px-2 py-1 text-[10px] font-semibold text-[#f4b860] shadow-lg backdrop-blur">
-              Reference · not in path
+            <div className="whitespace-nowrap rounded border border-[#96713d]/50 bg-[#fffefa]/90 px-2 py-1 text-[10px] font-semibold text-[#96713d] shadow-lg backdrop-blur">
+              Source camera
             </div>
           </Html>
         </>
@@ -828,7 +828,7 @@ function DirectionTargetMarker({
       <mesh raycast={() => undefined}>
         <ringGeometry args={[0.3, 0.45, 32]} />
         <meshBasicMaterial
-          color="#f4b860"
+          color="#96713d"
           transparent
           opacity={0.95}
           side={THREE.DoubleSide}
@@ -842,7 +842,7 @@ function DirectionTargetMarker({
           [-0.62, 0, 0],
           [0.62, 0, 0],
         ]}
-        color="#ffd18d"
+        color="#96713d"
         lineWidth={4}
         depthTest={false}
         raycast={() => undefined}
@@ -852,7 +852,7 @@ function DirectionTargetMarker({
           [0, -0.62, 0],
           [0, 0.62, 0],
         ]}
-        color="#ffd18d"
+        color="#96713d"
         lineWidth={4}
         depthTest={false}
         raycast={() => undefined}
@@ -865,7 +865,7 @@ function DirectionTargetMarker({
       >
         <div
           data-camera-look-target="set"
-          className="whitespace-nowrap rounded border border-[#f4b860]/50 bg-[#17181d]/95 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#ffd18d] shadow-lg backdrop-blur"
+          className="whitespace-nowrap rounded border border-[#96713d]/50 bg-[#fffefa]/95 px-2 py-1 text-[9px] font-semibold tracking-[0.02em] text-[#96713d] shadow-lg backdrop-blur"
         >
           {label}
         </div>
@@ -1179,11 +1179,11 @@ function TrajectoryHandle({
             data-camera-angle={hasCameraAngle ? "set" : "unset"}
             className={`grid h-5 w-5 place-items-center rounded-full border text-[10px] font-bold shadow-lg transition ${
               dragging || hovered
-                ? "border-white bg-white text-[#134e4a]"
+                ? "border-[#263238] bg-white text-[#263238]"
                 : selected
-                  ? "border-white bg-white text-[#134e4a]"
-                  : "border-[#5eead4] bg-[#2dd4bf] text-[#042f2e]"
-            } ${hasCameraAngle ? "ring-2 ring-[#0f766e]/70 ring-offset-1 ring-offset-[#eceef1]" : ""}`}
+                  ? "border-[#263238] bg-white text-[#263238]"
+                  : "border-[#70a99e] bg-[#70a99e] text-[#21423d]"
+            } ${hasCameraAngle ? "ring-2 ring-[#286c66]/70 ring-offset-1 ring-offset-[#eeece5]" : ""}`}
           >
             {pivotNumber}
           </span>

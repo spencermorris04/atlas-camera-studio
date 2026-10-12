@@ -107,9 +107,9 @@ export async function decodePointCloud(
           iy = Math.min(bitmap.height - 1, Math.floor(v)),
           ci = (iy * bitmap.width + ix) * 4;
         colors.push(
-          SRGB_TO_LINEAR[rgba[ci]!],
-          SRGB_TO_LINEAR[rgba[ci + 1]!],
-          SRGB_TO_LINEAR[rgba[ci + 2]!],
+          srgbByteToLinear(rgba[ci]!),
+          srgbByteToLinear(rgba[ci + 1]!),
+          srgbByteToLinear(rgba[ci + 2]!),
         );
       }
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
