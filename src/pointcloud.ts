@@ -1,7 +1,27 @@
-import { FloatType, RedFormat, Vector3 } from "three";
+import { Color, FloatType, RedFormat, SRGBColorSpace, Vector3 } from "three";
 import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
 import type { Camera } from "./types";
 import { cameraPose } from "./camera";
+
+// Source pixels are sRGB-encoded while vertex colors are consumed as
+// linear-sRGB, so every 8-bit channel is converted once through Three's
+// Color conversion instead of once per point.
+const SRGB_TO_LINEAR = buildSrgbToLinearTable();
+
+function buildSrgbToLinearTable(): Float32Array {
+  const table = new Float32Array(256);
+  const channel = new Color();
+  for (let byte = 0; byte < 256; byte += 1) {
+    channel.setRGB(byte / 255, byte / 255, byte / 255, SRGBColorSpace);
+    table[byte] = channel.r;
+  }
+  return table;
+}
+
+/** Linear-sRGB intensity for an 8-bit sRGB channel value. */
+export function srgbByteToLinear(byte: number): number {
+  return SRGB_TO_LINEAR[Math.min(255, Math.max(0, Math.round(byte)))] ?? 0;
+}
 
 export type PointCloudData = {
   positions: Float32Array;
@@ -86,7 +106,11 @@ export async function decodePointCloud(
         const ix = Math.min(bitmap.width - 1, Math.floor(u)),
           iy = Math.min(bitmap.height - 1, Math.floor(v)),
           ci = (iy * bitmap.width + ix) * 4;
-        colors.push(rgba[ci] / 255, rgba[ci + 1] / 255, rgba[ci + 2] / 255);
+        colors.push(
+          SRGB_TO_LINEAR[rgba[ci]!],
+          SRGB_TO_LINEAR[rgba[ci + 1]!],
+          SRGB_TO_LINEAR[rgba[ci + 2]!],
+        );
       }
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const forward = new Vector3(0, 0, -1).applyQuaternion(pose.quaternion);

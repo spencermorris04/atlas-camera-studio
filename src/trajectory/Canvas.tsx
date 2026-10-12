@@ -35,14 +35,20 @@ import {
   trajectoryPivotsFromSegments,
   type CameraDirectionMode,
   type CameraView,
+  type SampledCameraView,
   type TrajectoryDrawingView,
   type TrajectoryPoint,
   type TrajectorySegment,
 } from "./camera-trajectory";
 
 const PATH_SAMPLES = 101;
-const SELECTED_CAMERA_RED = "#ff4d5d";
-const SELECTED_CAMERA_DARK_RED = "#3a060d";
+const PATH_COLOR = "#0d9488";
+const PATH_ADDING_COLOR = "#2dd4bf";
+const HANDLE_COLOR = "#14b8a6";
+const SELECTED_CAMERA_TEAL = "#0f766e";
+const SELECTED_CAMERA_DARK_TEAL = "#042f2e";
+const STUDIO_BACKGROUND = "#eceef1";
+const PREVIEW_PROGRESS_REPORT_INTERVAL = 1 / 12;
 const VIEWER_KEYS = new Set(["w", "a", "s", "d"]);
 
 type CameraTrajectoryCanvasProps = {
@@ -57,6 +63,9 @@ type CameraTrajectoryCanvasProps = {
   } | null;
   addingPivot: boolean;
   previewing: boolean;
+  /** Null shows the editing overview; a number pins the preview camera to that path progress (0..1). */
+  previewProgress: number | null;
+  onPreviewProgress: (progress: number) => void;
   disabled: boolean;
   frameCount: number;
   previewSeconds: number;
@@ -89,6 +98,7 @@ type CameraTrajectoryCanvasProps = {
 
 export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
   const { pose, referenceView, segments } = props;
+  const inspecting = props.previewing || props.previewProgress !== null;
   const viewer = useRef<HTMLDivElement>(null);
   const navigationKeys = useRef(new Set<string>());
   const target = useMemo(
@@ -147,7 +157,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
             ? "set"
             : "idle"
       }
-      className={`relative h-full w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#a9bcff]/60 ${props.placingDirectionTarget ? "cursor-crosshair" : ""}`}
+      className={`relative h-full w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#14b8a6]/60 ${props.placingDirectionTarget ? "cursor-crosshair" : ""}`}
       onPointerDown={(event) =>
         event.currentTarget.focus({ preventScroll: true })
       }
@@ -155,7 +165,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
       onKeyUp={(event) => updateNavigationKey(event, false)}
       onBlur={() => navigationKeys.current.clear()}
     >
-      {!props.previewing && !props.placingDirectionTarget && (
+      {!inspecting && !props.placingDirectionTarget && (
         <button
           type="button"
           title="Reset 3D view"
@@ -171,7 +181,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
               ),
             });
           }}
-          className="absolute left-1/2 top-3 z-30 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-md border border-white/15 bg-[#0b0c0f]/90 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/65 shadow-lg backdrop-blur transition hover:border-white/30 hover:bg-[#17181d] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a9bcff] active:translate-y-px"
+          className="absolute left-1/2 top-3 z-30 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-md border border-white/15 bg-[#0b0c0f]/90 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/65 shadow-lg backdrop-blur transition hover:border-white/30 hover:bg-[#17181d] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6] active:translate-y-px"
         >
           <RotateCcw className="h-3.5 w-3.5" />
           Reset view
@@ -204,7 +214,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
         }}
         dpr={[1, 1.5]}
         gl={{ antialias: false }}
-        onCreated={({ gl }) => gl.setClearColor("#111216")}
+        onCreated={({ gl }) => gl.setClearColor(STUDIO_BACKGROUND)}
       >
         <CameraTrajectoryScene
           {...props}
@@ -270,6 +280,8 @@ function CameraTrajectoryScene({
   selectedPivot,
   addingPivot,
   previewing,
+  previewProgress,
+  onPreviewProgress,
   disabled,
   frameCount,
   previewSeconds,
@@ -296,6 +308,7 @@ function CameraTrajectoryScene({
   overviewHome: { position: [number, number, number] };
   navigationKeys: RefObject<Set<string>>;
 }) {
+  const inspecting = previewing || previewProgress !== null;
   const overviewCamera = useThree((state) => state.camera);
   const controls = useRef<OrbitControlsImpl>(null);
   const [draggingHandle, setDraggingHandle] = useState(false);
@@ -367,7 +380,7 @@ function CameraTrajectoryScene({
     const keys = navigationKeys.current;
     if (
       !activeControls ||
-      previewing ||
+      inspecting ||
       draggingHandle ||
       addingPivot ||
       placingDirectionTarget ||
@@ -418,16 +431,16 @@ function CameraTrajectoryScene({
         onDrawingViewChange={onDrawingViewChange}
       />
 
-      {!previewing && (
+      {!inspecting && (
         <Grid
           args={[100, 100]}
           position={[0, -0.002, 0]}
           cellSize={0.5}
           cellThickness={0.5}
-          cellColor="#292b31"
+          cellColor="#d7dade"
           sectionSize={2.5}
           sectionThickness={0.8}
-          sectionColor="#3a3d45"
+          sectionColor="#bcc1c8"
           infiniteGrid
           fadeDistance={30}
           fadeStrength={1.5}
@@ -438,14 +451,14 @@ function CameraTrajectoryScene({
 
       {(directionMode === "look_at" || directionMode === "look_away") &&
         directionTarget &&
-        !previewing && (
+        !inspecting && (
           <DirectionTargetMarker
             position={directionTarget}
             label={directionMode === "look_at" ? "Look target" : "Away target"}
           />
         )}
 
-      {!previewing &&
+      {!inspecting &&
         partDirectionTargets.map((partTarget) => (
           <DirectionTargetMarker
             key={partTarget.key}
@@ -462,11 +475,11 @@ function CameraTrajectoryScene({
         />
       )}
 
-      {!previewing && linePoints.length >= 2 && (
+      {!inspecting && linePoints.length >= 2 && (
         <>
           <Line
             points={linePoints}
-            color={addingPivot ? "#c0cdff" : "#8ca8ff"}
+            color={addingPivot ? PATH_ADDING_COLOR : PATH_COLOR}
             lineWidth={addingPivot ? 4 : 2.5}
             transparent
             opacity={addingPivot ? 1 : 0.9}
@@ -505,7 +518,7 @@ function CameraTrajectoryScene({
         </>
       )}
 
-      {!previewing && !placingDirectionTarget && (
+      {!inspecting && !placingDirectionTarget && (
         <TrajectoryHandles
           segments={segments}
           views={pivotViews}
@@ -521,7 +534,7 @@ function CameraTrajectoryScene({
         />
       )}
 
-      {!previewing && (
+      {!inspecting && (
         <>
           <FrustumObject
             camera={{
@@ -556,6 +569,8 @@ function CameraTrajectoryScene({
         <PreviewCamera
           views={views}
           previewing={previewing}
+          previewProgress={previewProgress}
+          onPreviewProgress={onPreviewProgress}
           frameCount={frameCount}
           previewSeconds={previewSeconds}
           aspectRatio={frameWidth / frameHeight}
@@ -571,7 +586,7 @@ function CameraTrajectoryScene({
         ref={controls}
         makeDefault
         enabled={
-          !previewing &&
+          !inspecting &&
           !draggingHandle &&
           !addingPivot &&
           !placingDirectionTarget
@@ -648,7 +663,7 @@ function SelectedCameraDirection({
       >
         <coneGeometry args={[depth * 0.18, depth * 0.38, 16]} />
         <meshBasicMaterial
-          color={SELECTED_CAMERA_RED}
+          color={SELECTED_CAMERA_TEAL}
           transparent
           opacity={0.7}
           depthTest={false}
@@ -664,7 +679,7 @@ function SelectedCameraDirection({
       >
         <coneGeometry args={[depth * 0.115, depth * 0.3, 16]} />
         <meshBasicMaterial
-          color={SELECTED_CAMERA_DARK_RED}
+          color={SELECTED_CAMERA_DARK_TEAL}
           depthTest={false}
           depthWrite={false}
           toneMapped={false}
@@ -870,7 +885,7 @@ function CameraDirectionStroke({
     <>
       <Line
         points={[...points]}
-        color={SELECTED_CAMERA_RED}
+        color={SELECTED_CAMERA_TEAL}
         lineWidth={lineWidth + 5}
         transparent
         opacity={0.7}
@@ -882,7 +897,7 @@ function CameraDirectionStroke({
       />
       <Line
         points={[...points]}
-        color={SELECTED_CAMERA_DARK_RED}
+        color={SELECTED_CAMERA_DARK_TEAL}
         lineWidth={lineWidth}
         depthTest={false}
         depthWrite={false}
@@ -1118,7 +1133,7 @@ function TrajectoryHandle({
             ),
             extrinsics: { position: [0, 0, 0], quaternion: [0, 0, 0, 1] },
           }}
-          color={selected ? "#ff4d5d" : "#8ca8ff"}
+          color={selected ? SELECTED_CAMERA_TEAL : HANDLE_COLOR}
           depth={markerDepth}
           overlay
           markers={false}
@@ -1141,7 +1156,7 @@ function TrajectoryHandle({
         <mesh>
           <sphereGeometry args={[1, 24, 16]} />
           <meshBasicMaterial
-            color={dragging || hovered || selected ? "#f7f5ef" : "#a9bcff"}
+            color={dragging || hovered || selected ? "#f7f5ef" : HANDLE_COLOR}
             depthTest={false}
             depthWrite={false}
             toneMapped={false}
@@ -1164,11 +1179,11 @@ function TrajectoryHandle({
             data-camera-angle={hasCameraAngle ? "set" : "unset"}
             className={`grid h-5 w-5 place-items-center rounded-full border text-[10px] font-bold shadow-lg transition ${
               dragging || hovered
-                ? "border-white bg-white text-[#10131c]"
+                ? "border-white bg-white text-[#134e4a]"
                 : selected
-                  ? "border-white bg-white text-[#10131c]"
-                  : "border-[#b8c4e8] bg-[#8997bf] text-[#10131c]"
-            } ${hasCameraAngle ? "ring-2 ring-white/90 ring-offset-1 ring-offset-[#10131c]" : ""}`}
+                  ? "border-white bg-white text-[#134e4a]"
+                  : "border-[#5eead4] bg-[#2dd4bf] text-[#042f2e]"
+            } ${hasCameraAngle ? "ring-2 ring-[#0f766e]/70 ring-offset-1 ring-offset-[#eceef1]" : ""}`}
           >
             {pivotNumber}
           </span>
@@ -1205,9 +1220,29 @@ function OverviewCamera({
   return null;
 }
 
+function applySampleToCamera(
+  camera: THREE.PerspectiveCamera,
+  samples: readonly SampledCameraView[],
+  progress: number,
+) {
+  const index = THREE.MathUtils.clamp(
+    Math.floor(THREE.MathUtils.clamp(progress, 0, 1) * samples.length),
+    0,
+    samples.length - 1,
+  );
+  const sample = samples[index]!;
+  camera.position.set(...sample.position);
+  camera.quaternion.set(...sample.quaternion);
+  camera.fov = THREE.MathUtils.radToDeg(sample.fovRadians);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+}
+
 function PreviewCamera({
   views,
   previewing,
+  previewProgress,
+  onPreviewProgress,
   frameCount,
   previewSeconds,
   aspectRatio,
@@ -1219,6 +1254,8 @@ function PreviewCamera({
 }: {
   views: readonly CameraView[];
   previewing: boolean;
+  previewProgress: number | null;
+  onPreviewProgress: (progress: number) => void;
   frameCount: number;
   previewSeconds: number;
   aspectRatio: number;
@@ -1248,36 +1285,40 @@ function PreviewCamera({
   );
   const startedAt = useRef<number | null>(null);
   const finished = useRef(false);
+  const lastReportedAt = useRef(-Infinity);
 
   useEffect(() => {
     startedAt.current = null;
     finished.current = false;
+    lastReportedAt.current = -Infinity;
   }, [previewing]);
 
-  useFrame(({ clock }) => {
-    if (
-      !previewing ||
-      samples.length === 0 ||
-      finished.current ||
-      !previewCamera.current
-    )
+  // While paused on a scrub position, keep the camera pinned to that sample.
+  useEffect(() => {
+    if (previewing || previewProgress === null || !previewCamera.current)
       return;
-    startedAt.current ??= clock.elapsedTime;
+    applySampleToCamera(previewCamera.current, samples, previewProgress);
+  }, [previewProgress, previewing, samples]);
+
+  useFrame(({ clock }) => {
+    if (!previewing || samples.length === 0 || !previewCamera.current) return;
+    // Playback finished: hold the final frame until inspection is exited.
+    if (finished.current) return;
+    startedAt.current ??=
+      clock.elapsedTime - (previewProgress ?? 0) * previewSeconds;
     const progress = Math.min(
       (clock.elapsedTime - startedAt.current) / previewSeconds,
       1,
     );
-    const index = Math.min(
-      Math.floor(progress * samples.length),
-      samples.length - 1,
-    );
-    const sample = samples[index]!;
-    previewCamera.current.position.set(...sample.position);
-    previewCamera.current.quaternion.set(...sample.quaternion);
-    previewCamera.current.fov = THREE.MathUtils.radToDeg(sample.fovRadians);
-    previewCamera.current.updateProjectionMatrix();
-    previewCamera.current.updateMatrixWorld();
-
+    applySampleToCamera(previewCamera.current, samples, progress);
+    if (
+      progress === 1 ||
+      clock.elapsedTime - lastReportedAt.current >=
+        PREVIEW_PROGRESS_REPORT_INTERVAL
+    ) {
+      lastReportedAt.current = clock.elapsedTime;
+      onPreviewProgress(progress);
+    }
     if (progress === 1) {
       finished.current = true;
       onDone();
@@ -1287,7 +1328,7 @@ function PreviewCamera({
   return (
     <PerspectiveCamera
       ref={previewCamera}
-      makeDefault={previewing}
+      makeDefault={previewing || previewProgress !== null}
       fov={THREE.MathUtils.radToDeg(views[0]!.fovRadians)}
       aspect={aspectRatio}
       near={0.01}
@@ -1371,6 +1412,7 @@ function PosedPointCloud({
           vertexColors
           size={pose.points.pointSize * scaleMultiplier}
           sizeAttenuation
+          toneMapped={false}
         />
       </points>
     </group>
