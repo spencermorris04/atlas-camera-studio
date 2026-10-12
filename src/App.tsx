@@ -147,7 +147,9 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
     <div className="studio-shell">
       <header className="studio-header flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-xs">
         <div className="flex items-center gap-4">
-          <span className="studio-brand font-semibold">Atlas Camera Studio</span>
+          <span className="studio-brand font-semibold">
+            Atlas Camera Studio
+          </span>
           {config.repoUrl && (
             <a
               href={config.repoUrl}
@@ -228,7 +230,9 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
             )}
           </div>
         ) : (
-          <span className="studio-local-status">Using your API key</span>
+          <span className="studio-local-status">
+            {config.apiConfigured ? "Local mode" : "Example only"}
+          </span>
         )}
       </header>
       {message && (

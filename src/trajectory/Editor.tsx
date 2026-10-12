@@ -149,13 +149,13 @@ const CAMERA_DIRECTION_PRESETS: readonly {
 }[] = [
   {
     mode: "manual",
-    label: "My angles",
+    label: "Manual",
     title: "Use the camera directions you set below",
   },
   {
     mode: "forward",
     label: "Forward",
-    title: "Face along the flight path",
+    title: "Face along the camera path",
   },
   {
     mode: "look_at",
@@ -584,7 +584,7 @@ export function CameraTrajectoryPage({
                 onTick: setPoseElapsed,
               })
             )[0];
-      if (!nextPose) throw new Error("No point cloud was returned");
+      if (!nextPose) throw new Error("No scene was returned");
       if (controller.signal.aborted) return;
 
       setPose(nextPose);
@@ -1276,9 +1276,7 @@ export function CameraTrajectoryPage({
     setPreviewProgress(null);
     setAddingPivot(false);
     setError(null);
-    setNotice(
-      "Path smoothed. Camera aim and timing are preserved. Undo to compare.",
-    );
+    setNotice("Path smoothed. Undo to restore it.");
   }
 
   function materializeSmoothedTrajectory(): TrajectorySegment[] {
@@ -1734,9 +1732,7 @@ export function CameraTrajectoryPage({
     setPlacingLookAtSegmentId(null);
     setPendingDirectionMode(null);
     setError(null);
-    setNotice(
-      "Camera move applied. Drag its points to refine it, or undo to restore your path.",
-    );
+    setNotice("Camera move applied. Drag its points to adjust it.");
   }
 
   function togglePathPreview() {
@@ -1823,8 +1819,7 @@ export function CameraTrajectoryPage({
         >
           {pose.depthUri === EXAMPLE_DEPTH && (
             <div className="border-b border-[#263238]/10 bg-[#e1efeb] px-4 py-2 text-xs text-[#263238]/70">
-              Example scene · Move the cameras, smooth the path, and press
-              Preview. No signup needed to explore.
+              Example scene. Edit the camera path or preview the shot.
               {!canViewHistory &&
                 " Sign in and verify your phone only when you want to generate a video or upload your own image."}
             </div>
@@ -1962,7 +1957,7 @@ export function CameraTrajectoryPage({
                   }}
                   onDirectionTargetMiss={() =>
                     setError(
-                      "No reconstructed scene point there. Click on the visible point cloud.",
+                      "No scene point here. Choose a point on the visible scene.",
                     )
                   }
                 />
@@ -2321,15 +2316,14 @@ export function CameraTrajectoryPage({
 
                   <label className="block min-w-48 flex-1">
                     <span className="mb-1 block text-[11px] font-medium text-[#263238]/55">
-                      What should happen?{" "}
-                      <span className="text-[#347f78]"></span>
+                      Video prompt <span className="text-[#347f78]"></span>
                     </span>
                     <input
                       aria-label="Video prompt"
                       value={prompt}
                       onChange={(event) => setPrompt(event.target.value)}
                       maxLength={1000}
-                      placeholder="Example: Slowly orbit left as the person walks forward"
+                      placeholder="Example: a person walks toward the window"
                       className="h-11 w-full rounded-md border border-[#263238]/15 bg-[#263238]/[0.06] px-3 text-sm text-[#263238] outline-none transition placeholder:text-[#263238]/55 hover:border-[#263238]/25 focus:border-[#347f78] focus:ring-2 focus:ring-[#347f78]/20 disabled:opacity-40"
                     />
                   </label>
@@ -2354,7 +2348,7 @@ export function CameraTrajectoryPage({
                       <Sparkles className="h-4 w-4" />
                     )}
                     {views.length < 2
-                      ? "Draw a path"
+                      ? "Choose a path"
                       : !PORTRAIT_GENERATION_ENABLED && aspectRatio === "9:16"
                         ? "9:16 unavailable"
                         : requiredFrameCount > MAX_FRAME_COUNT
@@ -2364,8 +2358,8 @@ export function CameraTrajectoryPage({
                             : !prompt.trim()
                               ? "Add a prompt"
                               : submitting
-                                ? `Adding ${seedCount}…`
-                                : `Queue ${seedCount} ${seedCount === 1 ? "video" : "videos"}`}
+                                ? `Starting ${seedCount}…`
+                                : `Generate ${seedCount === 1 ? "video" : `${seedCount} videos`}`}
                   </button>
                 </div>
               )}
@@ -2583,7 +2577,7 @@ function CameraDirectionPanel({
             Camera direction
           </h2>
           <p className="mt-1 text-[11px] leading-4 text-[#263238]/60">
-            Select a camera to move, aim, or delete it.
+            Select a camera to move or aim it.
           </p>
         </div>
         <button
@@ -2670,8 +2664,8 @@ function CameraDirectionPanel({
             role={selectedUsesPointTarget ? "img" : "application"}
             aria-label={
               selectedUsesPointTarget
-                ? "Point-cloud preview from the selected camera"
-                : "Drag the point-cloud preview to aim the selected camera"
+                ? "View from the selected camera"
+                : "Drag the preview to aim the selected camera"
             }
             data-camera-aim-preview={selectedPivot.pivotNumber}
             onPointerDown={selectedUsesPointTarget ? undefined : startAimDrag}
@@ -2698,7 +2692,7 @@ function CameraDirectionPanel({
           >
             <div
               data-camera-preview-renderer="dense-splats"
-              aria-label="Dense point-cloud view from the selected camera"
+              aria-label="View from the selected camera"
               className="pointer-events-none absolute inset-0"
             >
               <CameraPointCloudView
@@ -2710,7 +2704,7 @@ function CameraDirectionPanel({
               />
             </div>
             <div className="pointer-events-none absolute left-2 top-2 rounded border border-[#263238]/15 bg-[#f4f2ec]/80 px-2 py-1 text-[10px] font-medium text-[#263238]/65 backdrop-blur">
-              Point {selectedPivot.pivotNumber} · dense camera view
+              Camera {selectedPivot.pivotNumber} preview
             </div>
             <div className="pointer-events-none absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2">
               <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-[#263238]/55" />
@@ -2720,8 +2714,8 @@ function CameraDirectionPanel({
           <p className="mt-1.5 text-[10px] leading-4 text-[#263238]/55">
             {selectedUsesPointTarget
               ? selectedPivotUsesPartTarget && !pointDirectionMode
-                ? "Preview follows this part's target. Other parts keep their own behavior."
-                : "Preview follows the chosen target. Pick another camera above to inspect its view."
+                ? "This camera follows this part's target."
+                : "This camera follows the selected target."
               : "Drag to aim. Position stays fixed."}
           </p>
 
@@ -2775,16 +2769,16 @@ function CameraDirectionPanel({
           className={`mt-3 grid place-items-center rounded-lg border border-dashed border-[#263238]/15 bg-[#263238]/[0.025] px-8 text-center text-xs leading-5 text-[#263238]/60 ${aspectRatio === "9:16" ? "mx-auto w-[58%]" : "w-full"}`}
           style={{ aspectRatio: `${frameWidth} / ${frameHeight}` }}
         >
-          Choose a point above to aim its camera.
+          Select a camera to see its view.
         </div>
       )}
       <div className="mt-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#263238]/60">
-          Camera behavior
+          Aim
         </p>
         <div
           role="group"
-          aria-label="Camera behavior"
+          aria-label="Aim"
           className="mt-1.5 grid grid-cols-2 gap-1.5"
         >
           {CAMERA_DIRECTION_PRESETS.map((preset) => {
@@ -2819,7 +2813,7 @@ function CameraDirectionPanel({
         <div className="mt-3 flex flex-col items-stretch gap-2 rounded-lg border border-[#96713d]/25 bg-[#96713d]/[0.06] p-2.5">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold text-[#96713d]">
-              {hasDirectionTarget ? "Target set in scene" : "Choose a target"}
+              {hasDirectionTarget ? "Target selected" : "Choose a target"}
             </p>
             <p className="mt-0.5 text-[10px] leading-4 text-[#263238]/60">
               Every camera points{" "}
@@ -2833,7 +2827,7 @@ function CameraDirectionPanel({
             onClick={onChooseDirectionTarget}
             className="h-8 shrink-0 rounded-md border border-[#96713d]/35 bg-[#96713d]/10 px-2.5 text-[11px] font-semibold text-[#96713d] transition hover:bg-[#96713d]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d] active:translate-y-px"
           >
-            {hasDirectionTarget ? "Change point" : "Pick point in 3D"}
+            {hasDirectionTarget ? "Change point" : "Choose point"}
           </button>
         </div>
       )}
@@ -2853,7 +2847,7 @@ function CameraDirectionPanel({
                   ? "This part looks at its own scene point."
                   : pointDirectionMode
                     ? "The whole path currently uses the scene target."
-                    : "This part uses the whole-path camera behavior."}
+                    : "This part follows the path aim setting."}
               </p>
             </div>
             {selectedPart.hasLookAtTarget && (
@@ -3496,7 +3490,7 @@ function TrajectoryDrawPad({
         {path.length < 2 && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center">
             <span className="rounded-md border border-[#263238]/20 bg-[#f4f2ec]/85 px-3 py-2 text-xs font-semibold text-[#263238] shadow-md">
-              DRAG TO DRAW
+              Draw a path
             </span>
           </div>
         )}
@@ -3853,18 +3847,16 @@ function UploadScreen({
           </button>
         ) : (
           <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#263238]/60">
-            IMAGE TO MOTION
+            Start a scene
           </p>
         )}
         <h1 className="mt-4 max-w-lg text-4xl font-medium tracking-[-0.055em] sm:text-5xl">
-          {onResume
-            ? "Start another scene."
-            : "Give your image a new perspective."}
+          {onResume ? "Start another scene." : "Plan a camera move."}
         </h1>
         <p className="mt-4 max-w-md text-base leading-6 text-[#263238]/55">
           {onResume
             ? "Your current scene is still open. Choosing another image replaces it in the editor."
-            : "Build a scene from your image, shape the camera move, and preview your shot before generating."}
+            : "Upload an image, choose a camera path, and preview the shot."}
         </p>
 
         <button
@@ -3922,15 +3914,15 @@ function UploadScreen({
         >
           <img
             src={EXAMPLE_IMAGE}
-            alt="Cozy igloo example"
+            alt="Igloo example"
             className="h-16 w-24 rounded object-cover"
           />
           <span>
             <span className="block text-sm font-semibold text-[#263238]">
-              Explore an example
+              Open example
             </span>
             <span className="mt-1 block text-xs text-[#263238]/60">
-              Move cameras and preview a path · No signup needed
+              Try the editor with a sample scene. No account needed.
             </span>
           </span>
           <Play className="ml-auto h-5 w-5 shrink-0 text-[#347f78]" />
