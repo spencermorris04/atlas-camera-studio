@@ -1,31 +1,8 @@
-// Conservative triangulation of the sampled depth grid built by
-// decodePointCloud. Each grid cell stores the compact vertex index of its
-// sample (or -1) plus the camera-space depth that produced it. Triangles
-// only connect horizontally or vertically adjacent samples, so the mesh
-// keeps the 2D topology of the sampled image and never invents geometry
-// for regions the depth map did not observe.
-//
-// Two guards reject edges that would stretch across depth discontinuities,
-// both evaluated on rigid-transform-invariant quantities (world-space edge
-// lengths and raw depth values):
-//
-//  - Edge length: on a fronto-parallel surface, adjacent samples sit
-//    footprint = depth * stride / f apart, where stride is the sampling
-//    stride in pixels and f the focal length. Surfaces sloped away from
-//    the camera stretch this distance, so edges are kept below
-//    maxFootprintScale footprints, using the nearer sample's depth. The
-//    focal length is the harmonic mean of fx and fy: it is always <= both,
-//    which yields the smaller (more conservative) footprint.
-//
-//  - Depth jump: a surface sloped by angle theta from the image plane
-//    changes depth by roughly (stride / f) * tan(theta) between neighbors,
-//    so an edge is rejected when |d1 - d2| exceeds maxDepthJump times the
-//    nearer depth. A step from foreground to background fails by a wide
-//    margin.
-//
-// When all four corners of a cell are valid, the shorter 3D diagonal wins;
-// with only three valid corners the single triangle across those corners
-// is still emitted.
+// Connect the sampled image grid without stretching it across depth edges.
+// Missing samples are skipped. A cell with three valid corners keeps one
+// triangle; otherwise use the shorter valid diagonal. Edge lengths are capped
+// relative to their projected pixel spacing at the nearer depth. Positions may
+// be in camera or world coordinates because rigid transforms preserve length.
 
 export type DepthSurfaceGrid = {
   /** Number of sampled columns and rows in the source image grid. */
@@ -57,11 +34,6 @@ export function triangulateDepthSurface(
   const { cols, rows, vertexAt, depthAt, positions } = grid;
   const maxFootprintScale = options.maxFootprintScale ?? 7;
   const maxDepthJump = options.maxDepthJump ?? 0.12;
-  const focal = 2 / (1 / options.fx + 1 / options.fy);
-  // World-units-per-pixel at depth 1; scaled by depth this is the spacing
-  // between sampled neighbors on a fronto-parallel surface.
-  const pixelStep = options.stride / focal;
-
   const finitePositive = (depth: number) => Number.isFinite(depth) && depth > 0;
 
   // An edge may be a triangle side only when both endpoints exist with
@@ -75,13 +47,18 @@ export function triangulateDepthSurface(
     if (!finitePositive(da) || !finitePositive(db)) return false;
     const nearer = Math.min(da, db);
     if (Math.abs(da - db) > maxDepthJump * nearer) return false;
-    const limit = maxFootprintScale * nearer * pixelStep;
+    const pixelX = (((a % cols) - (b % cols)) * options.stride) / options.fx;
+    const pixelY =
+      ((Math.floor(a / cols) - Math.floor(b / cols)) * options.stride) /
+      options.fy;
+    const limitSquared =
+      (maxFootprintScale * nearer) ** 2 * (pixelX * pixelX + pixelY * pixelY);
     const i = va * 3,
       j = vb * 3;
     const dx = positions[j]! - positions[i]!,
       dy = positions[j + 1]! - positions[i + 1]!,
       dz = positions[j + 2]! - positions[i + 2]!;
-    return dx * dx + dy * dy + dz * dz <= limit * limit;
+    return dx * dx + dy * dy + dz * dz <= limitSquared;
   };
 
   const diagonalLengthSq = (a: number, b: number) => {

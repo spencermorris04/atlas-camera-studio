@@ -223,3 +223,16 @@ test("empty and single-cell grids produce no indices", () => {
     assert.equal(indices.length, 0);
   }
 });
+
+test("pixel footprint respects both focal lengths and diagonal spacing", () => {
+  const grid = buildGrid(4, 4, () => 5);
+  // Make the horizontal spacing twice as wide as vertical spacing.
+  for (let i = 0; i < grid.positions.length; i += 3) grid.positions[i] *= 2;
+  const indices = triangulateDepthSurface(grid, {
+    stride: STRIDE,
+    fx: FX / 2,
+    fy: FY,
+    maxFootprintScale: 1.01,
+  });
+  assert.equal(indices.length, 3 * 3 * 6);
+});

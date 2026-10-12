@@ -137,7 +137,7 @@ export async function decodePointCloud(
       colors: new Float32Array(colors),
       indices: triangulateDepthSurface(
         { cols, rows, vertexAt, depthAt: cellDepth, positions: positionArray },
-        { stride, fx: intrinsics.fx, fy: intrinsics.fy },
+        { stride, fx: intrinsics.fx * sx, fy: intrinsics.fy * sy },
       ),
       uvs: new Float32Array(uvs),
       medianDepth,
