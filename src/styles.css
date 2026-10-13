@@ -212,3 +212,106 @@ select:focus-visible {
     max-height: calc(100% - var(--studio-controls-height, 180px) - 88px);
   }
 }
+
+/* Use CSS viewport height: display scaling can make a large monitor a short workspace. */
+@media (max-height: 650px) {
+  .studio-floating-panel,
+  .studio-panel-toggle {
+    top: 64px;
+  }
+
+  .studio-floating-panel {
+    max-height: calc(100% - var(--studio-controls-height, 100px) - 88px);
+  }
+
+  .studio-view-controls p,
+  .studio-path-instructions,
+  .studio-source p:first-child {
+    display: none;
+  }
+
+  .studio-source {
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+  }
+
+  .studio-source > button:first-child {
+    width: 24px;
+  }
+
+  .studio-source > button:last-child {
+    height: 24px;
+    width: 24px;
+  }
+
+  .studio-presets {
+    margin-bottom: 6px;
+    padding: 6px;
+  }
+
+  .studio-path-map {
+    width: clamp(
+      96px,
+      calc(100dvh - var(--studio-controls-height, 100px) - 270px),
+      100%
+    );
+    margin-inline: auto;
+  }
+
+  .studio-timeline {
+    width: 100%;
+    max-width: none;
+    margin-bottom: 0;
+    padding: 7px 10px;
+    gap: 8px;
+  }
+
+  .studio-timeline-track {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .studio-timeline-caption {
+    order: 1;
+    flex-shrink: 0;
+    margin: 0;
+  }
+
+  .studio-timeline-label {
+    display: none;
+  }
+
+  .studio-output-controls {
+    padding: 5px 8px;
+  }
+
+  .studio-output-controls > button {
+    font-size: 12px;
+  }
+
+  .studio-save-draft {
+    padding-inline: 10px;
+  }
+
+  .studio-save-draft span {
+    display: none;
+  }
+
+  .studio-controls-dock {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+  }
+
+  .studio-controls-feedback {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-height: 650px) and (max-width: 759px) {
+  .studio-controls-dock {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

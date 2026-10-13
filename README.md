@@ -62,6 +62,8 @@ Use the **Camera preview** timeline to inspect any frame, play from that positio
 
 Select a camera to edit **Position X/Y/Z** precisely. Values commit on blur or Enter; Y stays above the floor unless **Allow below floor** is enabled. On smaller screens, opening the path or aim panel closes the other panel.
 
+Video settings contains the FOV and prompt. On shorter viewports, the playback and generation controls share one row and the path map scales to the available height. [See the compact layout](docs/editor-scaled.png).
+
 The editor opens at an isometric angle on a white grid, with finer 1-unit lines and stronger 5-unit lines. Navigate the scene with the X/Y/Z view buttons, WASD to move horizontally, and Q/E to move down/up. Drag to orbit; right-drag or Shift-drag to pan. **Reset view** (or R while the viewer is focused) returns to the default view. These controls move the editor viewpoint, not the cameras in your shot.
 
 The preview connects adjacent depth samples into textured surfaces to fill the gaps between points when viewing at an angle. It skips sharp depth jumps and accepts longer edges on grazing surfaces only when neighboring inverse-depth samples follow a consistent trend. Geometry hidden by the source image remains unobserved.

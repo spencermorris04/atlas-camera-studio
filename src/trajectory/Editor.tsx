@@ -1986,7 +1986,7 @@ export function CameraTrajectoryPage({
                 }
                 className={`absolute left-3 top-3 z-30 studio-floating-panel max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-3 shadow-sm transition-[width] duration-200   ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
               >
-                <div className="mb-2 flex items-center gap-2.5 border-b border-[#202733]/10 pb-2">
+                <div className="studio-source mb-2 flex items-center gap-2.5 border-b border-[#202733]/10 pb-2">
                   <button
                     type="button"
                     onClick={chooseNewImage}
@@ -2026,7 +2026,7 @@ export function CameraTrajectoryPage({
 
                 <details
                   open={path.length < 2}
-                  className="mb-3 rounded-lg border border-[#202733]/10 bg-white p-3"
+                  className="studio-presets mb-3 rounded-lg border border-[#202733]/10 bg-white p-3"
                 >
                   <summary className="cursor-pointer text-[11px] font-medium text-[#334155]">
                     Camera move presets
@@ -2202,10 +2202,10 @@ export function CameraTrajectoryPage({
             <div
               data-studio-controls
               ref={observeControlsDock}
-              className="absolute inset-x-3 bottom-3 z-40 mx-auto max-w-6xl"
+              className="studio-controls-dock absolute inset-x-3 bottom-3 z-40 mx-auto max-w-6xl"
             >
               {!inspecting && error && (
-                <div className="mb-2 rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-center text-xs text-red-800 backdrop-blur">
+                <div className="studio-controls-feedback mb-2 rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-center text-xs text-red-800 backdrop-blur">
                   {error}
                 </div>
               )}
@@ -2213,14 +2213,14 @@ export function CameraTrajectoryPage({
                 <div
                   role="status"
                   aria-live="polite"
-                  className="mb-2 rounded-md border border-emerald-300/25 bg-emerald-50/95 px-3 py-2 text-center text-xs text-emerald-800 backdrop-blur"
+                  className="studio-controls-feedback mb-2 rounded-md border border-emerald-300/25 bg-emerald-50/95 px-3 py-2 text-center text-xs text-emerald-800 backdrop-blur"
                 >
                   {notice}
                 </div>
               )}
 
               {views.length >= 2 && !placingDirectionTarget && (
-                <div className="mb-2 mx-auto flex max-w-3xl items-center gap-3 rounded-lg border border-[#202733]/10 bg-[#ffffff]/95 px-4 py-3 shadow-md backdrop-blur">
+                <div className="studio-timeline mb-2 mx-auto flex max-w-3xl items-center gap-3 rounded-lg border border-[#202733]/10 bg-[#ffffff]/95 px-4 py-3 shadow-md backdrop-blur">
                   <button
                     type="button"
                     aria-label={
@@ -2237,9 +2237,11 @@ export function CameraTrajectoryPage({
                       <Play className="h-3.5 w-3.5" />
                     )}
                   </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex justify-between text-[10px] text-[#727b88]">
-                      <span>Camera preview</span>
+                  <div className="studio-timeline-track min-w-0 flex-1">
+                    <div className="studio-timeline-caption mb-1 flex justify-between text-[10px] text-[#727b88]">
+                      <span className="studio-timeline-label">
+                        Camera preview
+                      </span>
                       <span className="tabular-nums">
                         {(((previewProgress ?? 0) * frameCount) / fps).toFixed(
                           2,
@@ -2282,44 +2284,62 @@ export function CameraTrajectoryPage({
                 <div
                   aria-hidden={placingDirectionTarget ? true : undefined}
                   inert={placingDirectionTarget ? true : undefined}
-                  className={`flex flex-wrap items-end gap-2 rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-2.5 pl-4 shadow-sm  sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
+                  className={`studio-output-controls relative flex items-center gap-2 rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-2.5 pl-4 shadow-sm  sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
                 >
-                  <OutputNumberInput
-                    label="FOV°"
-                    value={targetFovDegrees}
-                    min={MIN_TARGET_FOV_DEGREES}
-                    max={MAX_TARGET_FOV_DEGREES}
-                    disabled={false}
-                    onChange={updateTargetFov}
-                  />
+                  <details
+                    className="studio-video-settings"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.currentTarget.open = false;
+                        event.currentTarget.querySelector("summary")?.focus();
+                      }
+                    }}
+                  >
+                    <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md px-2 text-xs font-medium text-[#334155] hover:bg-[#f1f5f9]">
+                      Video settings <ChevronDown className="h-3.5 w-3.5" />
+                    </summary>
+                    <div className="studio-video-fields absolute bottom-[calc(100%+0.5rem)] right-0 flex w-[min(28rem,calc(100vw-1.5rem))] items-end gap-3 rounded-lg border border-[#202733]/15 bg-white p-3 shadow-sm">
+                      <OutputNumberInput
+                        label="FOV°"
+                        value={targetFovDegrees}
+                        min={MIN_TARGET_FOV_DEGREES}
+                        max={MAX_TARGET_FOV_DEGREES}
+                        disabled={false}
+                        onChange={updateTargetFov}
+                      />
+                      <label className="block min-w-0 flex-1">
+                        <span className="mb-1 block text-[11px] font-medium text-[#202733]/55">
+                          Video prompt <span className="text-[#334155]"></span>
+                        </span>
+                        <input
+                          aria-label="Video prompt"
+                          value={prompt}
+                          onChange={(event) => setPrompt(event.target.value)}
+                          maxLength={1000}
+                          placeholder="Example: a person walks toward the window"
+                          className="h-11 w-full rounded-md border border-[#202733]/15 bg-[#202733]/[0.06] px-3 text-sm text-[#202733] outline-none transition placeholder:text-[#202733]/55 hover:border-[#202733]/25 focus:border-[#334155] focus:ring-2 focus:ring-[#334155]/20 disabled:opacity-40"
+                        />
+                      </label>
+                    </div>
+                  </details>
 
                   <button
                     type="button"
                     disabled={savingDraft || submitting}
                     onClick={() => void saveDraft()}
-                    className="flex h-11 min-w-28 items-center justify-center gap-2 rounded-md border border-[#202733]/20 px-3 text-sm font-semibold text-[#202733]/75 transition hover:border-[#202733]/35 hover:bg-[#202733]/[0.07] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/60 active:translate-y-px disabled:cursor-wait disabled:opacity-35 sm:px-4"
+                    aria-label="Save draft"
+                    title="Save draft"
+                    className="studio-save-draft flex h-9 items-center justify-center gap-2 rounded-md border border-[#202733]/20 px-3 text-sm font-semibold text-[#202733]/75 transition hover:border-[#202733]/35 hover:bg-[#202733]/[0.07] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/60 active:translate-y-px disabled:cursor-wait disabled:opacity-35 sm:px-4"
                   >
                     {savingDraft ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Save className="h-4 w-4" />
                     )}
-                    {savingDraft ? "Saving…" : "Save draft"}
-                  </button>
-
-                  <label className="block min-w-48 flex-1">
-                    <span className="mb-1 block text-[11px] font-medium text-[#202733]/55">
-                      Video prompt <span className="text-[#334155]"></span>
+                    <span className="hidden sm:inline">
+                      {savingDraft ? "Saving…" : "Save draft"}
                     </span>
-                    <input
-                      aria-label="Video prompt"
-                      value={prompt}
-                      onChange={(event) => setPrompt(event.target.value)}
-                      maxLength={1000}
-                      placeholder="Example: a person walks toward the window"
-                      className="h-11 w-full rounded-md border border-[#202733]/15 bg-[#202733]/[0.06] px-3 text-sm text-[#202733] outline-none transition placeholder:text-[#202733]/55 hover:border-[#202733]/25 focus:border-[#334155] focus:ring-2 focus:ring-[#334155]/20 disabled:opacity-40"
-                    />
-                  </label>
+                  </button>
 
                   <button
                     type="button"
@@ -2333,7 +2353,7 @@ export function CameraTrajectoryPage({
                       savingDraft
                     }
                     onClick={() => void generate()}
-                    className="flex h-11 min-w-28 items-center justify-center gap-2 rounded-md bg-[#334155] px-3 text-sm font-semibold text-white transition hover:bg-[#1e293b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/70 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 sm:min-w-36 sm:px-4"
+                    className="studio-generate ml-auto flex h-9 items-center justify-center gap-2 rounded-md bg-[#334155] px-3 text-sm font-semibold text-white transition hover:bg-[#1e293b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/70 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 sm:px-4"
                   >
                     {submitting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -3333,13 +3353,13 @@ function TrajectoryDrawPad({
         </div>
       </div>
 
-      <p className="mb-2 text-[10px] leading-4 text-[#202733]/60">
+      <p className="studio-path-instructions mb-2 text-[10px] leading-4 text-[#202733]/60">
         {addingPivot
-          ? "Click the teal path in the main 3D view."
+          ? "Click the path in the main 3D view."
           : "Draw a route. Each section gets equal video time."}
       </p>
 
-      <div className="relative aspect-square overflow-hidden rounded-lg border border-[#202733]/15 bg-[#ffffff]">
+      <div className="studio-path-map relative aspect-square overflow-hidden rounded-lg border border-[#202733]/15 bg-[#ffffff]">
         <svg
           viewBox="0 0 100 100"
           role="application"
