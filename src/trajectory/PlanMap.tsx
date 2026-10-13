@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Maximize, MousePointer2, PenLine } from "lucide-react";
+import { capturePointer } from "./pointer";
 import type { CameraView, TrajectoryPoint } from "./camera-trajectory";
 import type { CameraKeyframe, ShotCurve } from "./keyframes";
 import { usePlayheadFrame, type Playhead } from "./playhead";
@@ -196,7 +197,7 @@ function TopView({
     playhead.pause();
     playhead.setFrame(key.frame);
     const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
+    capturePointer(target, event.pointerId);
     const [startX, startZ] = toWorld(event);
     const origin = key.position;
     const move = (moveEvent: PointerEvent) => {
@@ -250,7 +251,7 @@ function TopView({
       className={`studio-map-svg ${tool === "sketch" ? "is-sketching" : ""}`}
       onPointerDown={(event) => {
         if (tool !== "sketch" || event.button !== 0) return;
-        event.currentTarget.setPointerCapture(event.pointerId);
+        capturePointer(event.currentTarget, event.pointerId);
         setSketch([toWorld(event)]);
       }}
       onPointerMove={(event) => {
@@ -527,7 +528,7 @@ function HeightView({
     playhead.pause();
     playhead.setFrame(key.frame);
     const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
+    capturePointer(target, event.pointerId);
     const move = (moveEvent: PointerEvent) => {
       const element = svg.current!;
       const point = element.createSVGPoint();
