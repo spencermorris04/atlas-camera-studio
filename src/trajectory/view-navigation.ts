@@ -10,11 +10,6 @@ export const VIEWER_KEY_SPEED = 0.8;
 
 const MIN_VIEW_DISTANCE = 1;
 const KEY_DELTA_CAP = 0.1;
-/** How quickly axis-button moves close in on their target, per second. */
-const AXIS_DAMPING_RATE = 12;
-/** Below this fraction of a step, the remaining axis move is applied in full. */
-const AXIS_SNAP = 1e-3;
-
 const TYPING_TAGS = new Set(["button", "input", "textarea", "select", "a"]);
 
 const horizontalForward = new Vector3();
@@ -79,27 +74,16 @@ export function worldAxisDirection(
   return out;
 }
 
-/**
- * Advance a pending axis-button move by one damped frame. `remaining` holds
- * outstanding clicks in axis-step units; it is reduced by the applied step and
- * zeroed once the leftover is negligible. Returns this frame's world-space
- * step in `out`.
- */
+/** Apply an axis-button step immediately, with no residual movement. */
 export function consumePendingAxisMove(
   remaining: Vector3,
   distance: number,
-  delta: number,
   out: Vector3,
 ): Vector3 {
-  const worldScale = VIEWER_AXIS_STEP * Math.max(distance, MIN_VIEW_DISTANCE);
-  out.copy(remaining).multiplyScalar(worldScale);
-  if (out.lengthSq() <= (worldScale * AXIS_SNAP) ** 2) {
-    remaining.set(0, 0, 0);
-    return out;
-  }
-  const fraction = 1 - Math.exp(-Math.max(delta, 0) * AXIS_DAMPING_RATE);
-  out.multiplyScalar(fraction);
-  remaining.addScaledVector(out, -1 / worldScale);
+  out
+    .copy(remaining)
+    .multiplyScalar(VIEWER_AXIS_STEP * Math.max(distance, MIN_VIEW_DISTANCE));
+  remaining.set(0, 0, 0);
   return out;
 }
 

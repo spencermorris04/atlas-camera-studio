@@ -54,19 +54,19 @@ For development, run `npm run dev` and `npx vite` in separate terminals. The Vit
 
 ## Camera planning controls
 
-The editor uses a light theme with a teal camera path. The 3D cloud and drawing map use colors sampled from the reference image, with sRGB colors converted to linear values for Three.js rendering.
+The editor uses a compact white workspace with Path, Camera, and Video tabs in one collapsible sidebar. The 3D cloud and drawing map use colors sampled from the reference image, with sRGB colors converted to linear values for Three.js rendering.
 
 Choose **Push in**, **Pull back**, **Truck right**, or **Orbit left** to replace the current path with five editable cameras. **Travel** controls the amount used by the next preset, relative to the subject distance. Presets start at the source camera; orbit cameras aim at the scene center. Undo restores your previous path.
 
-Use the **Camera preview** timeline to inspect any frame, play from that position, or pause. **Edit path** returns to the overview. Preview uses the same camera samples as generation and stays at the final frame when playback finishes.
+Use the timeline to scrub, play, or pause. Playback appears in the bottom-right camera inset while the overview and editing controls remain usable. Click the inset to expand it; Escape restores its size. **Stop preview** returns the inset to the selected camera. Preview uses the same camera samples as generation and holds the final frame when playback finishes.
 
-Select a camera to edit **Position X/Y/Z** precisely. Values commit on blur or Enter; Y stays above the floor unless **Allow below floor** is enabled. On smaller screens, opening the path or aim panel closes the other panel.
+Select a camera to open its properties. Drag the X/Y/Z labels to scrub position values, hold Shift for finer movement, or type a value and press Enter. Y stays above the floor unless **Allow below floor** is enabled. Selection darkens the model without enlarging it. Camera models keep a stable screen size as you zoom, and nearby number labels are spaced apart. The reference camera has a dashed outline and a separate Source label.
 
-Video settings contains the FOV and prompt. On shorter viewports, the playback and generation controls share one row and the path map scales to the available height. [See the compact layout](docs/editor-scaled.png).
+The Video tab contains the FOV and prompt. Playback and generation controls share a compact bottom row, and the path map scales to the available height. [See the compact layout](docs/editor-scaled.png).
 
-The editor opens at an isometric angle on a white grid, with finer 1-unit lines and stronger 5-unit lines. Navigate the scene with the X/Y/Z view buttons, WASD to move horizontally, and Q/E to move down/up. Drag to orbit; right-drag or Shift-drag to pan. **Reset view** (or R while the viewer is focused) returns to the default view. These controls move the editor viewpoint, not the cameras in your shot.
+The editor opens at an isometric angle on a white grid, with finer 1-unit lines and stronger 5-unit lines. Navigate the scene with the vertical X/Y/Z toolbar on the right, WASD to move horizontally, and Q/E to move down/up. Drag to orbit; right-drag or Shift-drag to pan. Movement stops immediately on release. **Reset view** (or R while the viewer is focused) returns to the default view. These controls move the editor viewpoint, not the cameras in your shot.
 
-The preview connects adjacent depth samples into textured surfaces to fill the gaps between points when viewing at an angle. It skips sharp depth jumps and accepts longer edges on grazing surfaces only when neighboring inverse-depth samples follow a consistent trend. Geometry hidden by the source image remains unobserved.
+The preview connects adjacent depth samples into textured surfaces to fill the gaps between points when viewing at an angle. It skips unsupported depth jumps and reconnects grazing surfaces when local inverse-depth samples establish a plane. Isolated missing samples can be repaired from measured planar neighbors; larger gaps remain open. Geometry hidden by the source image remains unobserved.
 
 ### Get an API key
 

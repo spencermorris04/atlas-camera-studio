@@ -109,34 +109,16 @@ test("world axis directions match their labels", () => {
   );
 });
 
-test("pending axis moves converge on the requested displacement", () => {
-  const remaining = new Vector3(1, 0, 0);
-  const step = new Vector3();
-  const applied = new Vector3();
-  const worldTarget = VIEWER_AXIS_STEP * 10;
-  for (let frame = 0; frame < 200 && remaining.lengthSq() > 0; frame += 1) {
-    applied.add(consumePendingAxisMove(remaining, 10, 1 / 60, step));
-  }
-  assert.equal(remaining.lengthSq(), 0);
-  assert.ok(
-    Math.abs(applied.x - worldTarget) < 1e-6,
-    `applied ${applied.x}, wanted ${worldTarget}`,
-  );
-  assert.equal(applied.y, 0);
-  assert.equal(applied.z, 0);
-});
-
-test("pending axis moves are damped, largest first", () => {
-  const remaining = new Vector3(1, 0, 0);
-  const step = consumePendingAxisMove(remaining, 10, 1 / 60, new Vector3());
-  assert.ok(step.x > 0 && step.x < VIEWER_AXIS_STEP * 10);
-  assert.ok(remaining.x > 0 && remaining.x < 1);
-});
-
-test("pending axis moves zero out on a zero request", () => {
-  const remaining = new Vector3();
-  const step = consumePendingAxisMove(remaining, 10, 1 / 60, new Vector3());
-  assert.equal(step.lengthSq(), 0);
+test("axis clicks apply once and leave no residual movement", () => {
+  const pending = new Vector3(1, -1, 0);
+  const out = consumePendingAxisMove(pending, 10, new Vector3());
+  assert.deepEqual(out.toArray(), [
+    VIEWER_AXIS_STEP * 10,
+    -VIEWER_AXIS_STEP * 10,
+    0,
+  ]);
+  assert.equal(pending.lengthSq(), 0);
+  assert.equal(consumePendingAxisMove(pending, 10, out).lengthSq(), 0);
 });
 
 test("viewer keys are ignored while modifiers are held or typing", () => {

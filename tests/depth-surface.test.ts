@@ -356,6 +356,11 @@ test("example depth retains measured surface coverage when viewed from above", (
     .parse(
       file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength),
     );
+  const { width, height, data } = decoded;
+  assert.ok(
+    width && height && data,
+    "example EXR must decode to a complete depth image",
+  );
   const camera = JSON.parse(
     readFileSync(
       new URL("../public/example/igloo.json", import.meta.url),
@@ -363,18 +368,15 @@ test("example depth retains measured surface coverage when viewed from above", (
     ),
   ).camera.intrinsics;
   const stride = 2,
-    cols = Math.ceil(decoded.width / stride),
-    rows = Math.ceil(decoded.height / stride);
+    cols = Math.ceil(width / stride),
+    rows = Math.ceil(height / stride);
   const depthAt = new Float32Array(cols * rows);
   const vertexAt = Int32Array.from(depthAt, (_, i) => i);
   const positions = new Float32Array(cols * rows * 3);
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const cell = y * cols + x;
-      const depth =
-        decoded.data[
-          (decoded.height - 1 - y * stride) * decoded.width + x * stride
-        ];
+      const depth = data[(height - 1 - y * stride) * width + x * stride];
       depthAt[cell] = depth;
       positions.set(
         [

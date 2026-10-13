@@ -6,12 +6,20 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { scrubNumber } from "./numeric-scrub";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Camera,
+  Crosshair,
+  Route,
+  SlidersHorizontal,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
+  Minimize2,
   ChevronDown,
   Copy,
   Download,
@@ -20,10 +28,6 @@ import {
   History as HistoryIcon,
   House,
   Loader2,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   Pause,
   Play,
   Plus,
@@ -38,12 +42,14 @@ import {
   Trash2,
   Upload,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import { verticalFov, type PinholeCamera } from "./common";
 import * as THREE from "three";
-import { CameraPointCloudView, CameraTrajectoryCanvas } from "./Canvas";
+import {
+  CameraPointCloudView,
+  CameraPlaybackView,
+  CameraTrajectoryCanvas,
+} from "./Canvas";
 import {
   appendDrawnTrajectory,
   buildTargetCameras,
@@ -137,12 +143,6 @@ const TARGET_FORMATS: Record<
 };
 const FIRST_GENERATION_SEED = 42;
 const MAX_DEPTH_ANCHORS = 16;
-const DRAWING_PANEL_SIZES = [
-  { label: "Small", widthClass: "w-64" },
-  { label: "Medium", widthClass: "w-[18rem]" },
-  { label: "Large", widthClass: "w-[34rem]" },
-  { label: "Full", widthClass: "w-[44rem]" },
-] as const;
 const CAMERA_DIRECTION_PRESETS: readonly {
   mode: CameraDirectionMode;
   label: string;
@@ -169,7 +169,7 @@ const CAMERA_DIRECTION_PRESETS: readonly {
     title: "Point every camera away from one spot you choose in the scene",
   },
 ];
-const DEFAULT_DRAWING_PANEL_SIZE_INDEX = 1;
+
 type PointDirectionMode = "look_at" | "look_away";
 
 function isPointDirectionMode(
@@ -389,10 +389,6 @@ export function CameraTrajectoryPage({
   const poseAbort = useRef<AbortController | null>(null);
   const previewUrlRef = useRef<string | null>(null);
   const pastedImageLoader = useRef<(file: File) => void>(() => undefined);
-  const drawingPanelMinimizeButton = useRef<HTMLButtonElement | null>(null);
-  const drawingPanelRestoreButton = useRef<HTMLButtonElement | null>(null);
-  const directionPanelMinimizeButton = useRef<HTMLButtonElement | null>(null);
-  const directionPanelRestoreButton = useRef<HTMLButtonElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [poseBlob, setPoseBlob] = useState<Blob | null>(null);
@@ -436,7 +432,8 @@ export function CameraTrajectoryPage({
   const [previewing, setPreviewing] = useState(false);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [moveAmount, setMoveAmount] = useState(0.25);
-  const inspecting = previewing || previewProgress !== null;
+  const playingCamera = previewing || previewProgress !== null;
+  const [cameraViewExpanded, setCameraViewExpanded] = useState(false);
   const [addingPivot, setAddingPivot] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -450,10 +447,9 @@ export function CameraTrajectoryPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
-  const [drawingPanelOpen, setDrawingPanelOpen] = useState(true);
-  const [directionPanelOpen, setDirectionPanelOpen] = useState(false);
-  const [drawingPanelSizeIndex, setDrawingPanelSizeIndex] = useState(
-    DEFAULT_DRAWING_PANEL_SIZE_INDEX,
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState<"path" | "camera" | "video">(
+    "path",
   );
   const [error, setError] = useState<string | null>(null);
   const targetFormat = TARGET_FORMATS[aspectRatio];
@@ -1557,8 +1553,8 @@ export function CameraTrajectoryPage({
     pivotNumber: number,
   ) {
     setSelectedPivot({ segmentId, pointIndex, pivotNumber });
-    setDirectionPanelOpen(true);
-    if (window.innerWidth < 1024) setDrawingPanelOpen(false);
+    setSidebarOpen(true);
+    setSidebarTab("camera");
     setSelectedSegmentId(segmentId);
     setAddingPivot(false);
     setError(null);
@@ -1761,27 +1757,14 @@ export function CameraTrajectoryPage({
     return () => observer.disconnect();
   }, []);
 
-  function setDrawingPanelVisibility(open: boolean) {
-    setDrawingPanelOpen(open);
-    if (open && window.innerWidth < 1024) setDirectionPanelOpen(false);
-    requestAnimationFrame(() => {
-      (open
-        ? drawingPanelMinimizeButton
-        : drawingPanelRestoreButton
-      ).current?.focus();
-    });
-  }
-
-  function setDirectionPanelVisibility(open: boolean) {
-    setDirectionPanelOpen(open);
-    if (open && window.innerWidth < 1024) setDrawingPanelOpen(false);
-    requestAnimationFrame(() => {
-      (open
-        ? directionPanelMinimizeButton
-        : directionPanelRestoreButton
-      ).current?.focus();
-    });
-  }
+  useEffect(() => {
+    if (!cameraViewExpanded) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCameraViewExpanded(false);
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [cameraViewExpanded]);
 
   return (
     <div className="camera-editor relative h-dvh min-h-dvh overflow-hidden bg-[#ffffff] font-sans text-[#202733]">
@@ -1884,30 +1867,21 @@ export function CameraTrajectoryPage({
               toolbarContainer,
             )}
 
-          <main className="relative min-h-0 flex-1 overflow-hidden bg-[#ffffff]">
+          <main
+            className="studio-workspace relative min-h-0 flex-1 overflow-hidden bg-[#ffffff]"
+            style={
+              {
+                "--studio-sidebar-width": sidebarOpen
+                  ? "min(264px, calc(100vw - 96px))"
+                  : "0px",
+              } as React.CSSProperties
+            }
+          >
             <div
-              className={
-                inspecting
-                  ? "absolute inset-0 grid place-items-center bg-[#ffffff] p-4 sm:p-8"
-                  : "absolute inset-0"
-              }
+              className="studio-viewport absolute inset-y-0 right-0"
+              style={{ left: "var(--studio-sidebar-width)" }}
             >
-              <div
-                className={
-                  inspecting
-                    ? aspectRatio === "9:16"
-                      ? "relative h-full max-h-full max-w-full overflow-hidden rounded-lg border border-[#202733]/15 bg-[#ffffff] shadow-sm"
-                      : "relative aspect-video w-full max-w-[min(72rem,130dvh)] overflow-hidden rounded-lg border border-[#202733]/15 bg-[#ffffff] shadow-sm"
-                    : "h-full w-full"
-                }
-                style={
-                  inspecting
-                    ? {
-                        aspectRatio: `${targetFormat.width} / ${targetFormat.height}`,
-                      }
-                    : undefined
-                }
-              >
+              <div className="h-full w-full">
                 <CameraTrajectoryCanvas
                   key={pose.imageUrl}
                   pose={pose}
@@ -1954,262 +1928,365 @@ export function CameraTrajectoryPage({
                     )
                   }
                 />
-
-                {inspecting && (
-                  <>
-                    <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-[#202733]/15 bg-[#ffffff]/85 px-3 py-2 text-xs font-medium text-[#202733]/75 backdrop-blur">
-                      Camera preview · {aspectRatio}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPreviewing(false);
-                        setPreviewProgress(null);
-                      }}
-                      className="absolute right-3 top-3 flex h-9 items-center gap-2 rounded-md bg-white px-3 text-xs font-semibold text-[#202733] shadow-sm transition hover:bg-[#ffffff] active:translate-y-px"
-                    >
-                      <Pause className="h-3.5 w-3.5" />
-                      Back to editor
-                    </button>
-                  </>
-                )}
               </div>
             </div>
 
-            {!inspecting && (
+            <aside
+              className="studio-sidebar"
+              hidden={!sidebarOpen}
+              aria-label="Scene tools"
+            >
               <div
-                id="trajectory-drawing-panel"
-                hidden={!drawingPanelOpen || placingDirectionTarget}
-                inert={placingDirectionTarget ? true : undefined}
-                data-camera-drawing-panel-size={
-                  DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.label
-                }
-                className={`absolute left-3 top-3 z-30 studio-floating-panel max-w-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-3 shadow-sm transition-[width] duration-200   ${DRAWING_PANEL_SIZES[drawingPanelSizeIndex]!.widthClass}`}
+                className="studio-sidebar-tabs"
+                role="tablist"
+                aria-label="Scene tools"
               >
-                <div className="studio-source mb-2 flex items-center gap-2.5 border-b border-[#202733]/10 pb-2">
-                  <button
-                    type="button"
-                    onClick={chooseNewImage}
-                    className="group w-16 shrink-0 overflow-hidden rounded bg-[#ffffff] disabled:opacity-30"
-                  >
-                    <img
-                      src={previewUrl ?? pose.imageUrl}
-                      alt="Change reference image"
-                      className="aspect-video w-full object-cover transition group-hover:opacity-80"
-                    />
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748b]">
-                      Reference image
-                    </p>
-                    <p
-                      className="mt-0.5 truncate text-[10px] text-[#202733]/55"
-                      title={fileName}
-                    >
-                      {fileName}
-                    </p>
-                  </div>
-                  <button
-                    ref={drawingPanelMinimizeButton}
-                    type="button"
-                    data-overlay-toggle="path"
-                    aria-label="Minimize path panel"
-                    aria-controls="trajectory-drawing-panel"
-                    aria-expanded="true"
-                    title="Minimize path panel"
-                    onClick={() => setDrawingPanelVisibility(false)}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#202733]/10 text-[#202733]/60 transition hover:border-[#202733]/25 hover:bg-[#202733]/[0.07] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px"
-                  >
-                    <PanelLeftClose className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <details
-                  open={path.length < 2}
-                  className="studio-presets mb-3 rounded-lg border border-[#202733]/10 bg-white p-3"
-                >
-                  <summary className="cursor-pointer text-[11px] font-medium text-[#334155]">
-                    Camera move presets
-                  </summary>
-                  <div className="mt-3 grid grid-cols-2 gap-1.5">
-                    {CAMERA_MOVE_PRESETS.map((preset) => (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => applyMovePreset(preset.id)}
-                        title="Replace the current path. Undo restores it."
-                        className="rounded-md border border-[#334155]/20 bg-[#f1f5f9]/50 px-2 py-2 text-xs font-medium text-[#1e293b] hover:bg-[#f1f5f9]"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                  <label
-                    title="Amount used by the next camera move"
-                    className="mt-3 flex items-center gap-3 text-[10px] text-[#727b88]"
-                  >
-                    Travel{" "}
-                    <input
-                      aria-label="Camera move amount"
-                      type="range"
-                      min="0.1"
-                      max="0.6"
-                      step="0.05"
-                      value={moveAmount}
-                      onChange={(event) =>
-                        setMoveAmount(Number(event.target.value))
+                {(["path", "camera", "video"] as const).map((tab) => {
+                  const Icon =
+                    tab === "path"
+                      ? Route
+                      : tab === "camera"
+                        ? Camera
+                        : SlidersHorizontal;
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={sidebarTab === tab}
+                      aria-controls={`studio-tab-${tab}`}
+                      onClick={() => setSidebarTab(tab)}
+                      title={
+                        tab === "path"
+                          ? "Path"
+                          : tab === "camera"
+                            ? "Camera"
+                            : "Video"
                       }
-                      className="min-w-0 flex-1 accent-[#334155]"
-                    />
-                    <span className="w-8 text-right tabular-nums">
-                      {Math.round(moveAmount * 100)}%
-                    </span>
-                  </label>
-                </details>
-                <TrajectoryDrawPad
-                  points={trajectoryMap.worldPoints}
-                  colors={trajectoryMap.colors}
-                  referencePosition={referenceView.position}
-                  segments={segments}
-                  selectedSegmentId={selectedSegmentId}
-                  path={path}
-                  view={
-                    drawingView ?? cameraDrawingView(referenceView.quaternion)
-                  }
-                  space={trajectoryMap.space}
-                  previewing={previewing}
-                  addingPivot={addingPivot}
-                  closedLoop={closedLoop}
-                  allowBelowFloor={allowBelowFloor}
-                  disabled={false}
-                  panelSizeIndex={drawingPanelSizeIndex}
-                  onChange={updateDrawnSegments}
-                  onComplete={completeDrawnSegments}
-                  onSelectPart={setSelectedSegmentId}
-                  onDeletePart={deletePathPart}
-                  onApplyShape={applyPathShape}
-                  onSmooth={smoothPath}
-                  onTogglePivot={() => {
-                    setAddingPivot((current) => !current);
-                    setPreviewing(false);
-                    setPreviewProgress(null);
-                    setError(null);
-                  }}
-                  onCloseLoop={closePathLoop}
-                  onAllowBelowFloorChange={updateAllowBelowFloor}
-                  onClear={clearPath}
-                  onPlay={togglePathPreview}
-                  onPanelSizeChange={setDrawingPanelSizeIndex}
-                />
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>
+                        {tab === "path"
+                          ? "Path"
+                          : tab === "camera"
+                            ? "Camera"
+                            : "Video"}
+                      </span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
               </div>
-            )}
-
-            {!inspecting && !placingDirectionTarget && !drawingPanelOpen && (
+              <div className="studio-sidebar-body">
+                <div
+                  id="studio-tab-path"
+                  aria-labelledby="studio-tool-path"
+                  role="tabpanel"
+                  hidden={sidebarTab !== "path" || placingDirectionTarget}
+                >
+                  <div
+                    id="trajectory-drawing-panel"
+                    className="studio-path-panel"
+                  >
+                    <div className="studio-source mb-2 flex items-center gap-2.5 border-b border-[#202733]/10 pb-2">
+                      <button
+                        type="button"
+                        onClick={chooseNewImage}
+                        className="group w-16 shrink-0 overflow-hidden rounded bg-[#ffffff] disabled:opacity-30"
+                      >
+                        <img
+                          src={previewUrl ?? pose.imageUrl}
+                          alt="Change reference image"
+                          className="aspect-video w-full object-cover transition group-hover:opacity-80"
+                        />
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748b]">
+                          Reference image
+                        </p>
+                        <p
+                          className="mt-0.5 truncate text-[10px] text-[#202733]/55"
+                          title={fileName}
+                        >
+                          {fileName}
+                        </p>
+                      </div>
+                    </div>
+                    <details
+                      open={path.length < 2}
+                      className="studio-presets mb-3 rounded-lg border border-[#202733]/10 bg-white p-3"
+                    >
+                      <summary className="cursor-pointer text-[11px] font-medium text-[#334155]">
+                        Camera move presets
+                      </summary>
+                      <div className="mt-3 grid grid-cols-2 gap-1.5">
+                        {CAMERA_MOVE_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => applyMovePreset(preset.id)}
+                            title="Replace the current path. Undo restores it."
+                            className="rounded-md border border-[#334155]/20 bg-[#f1f5f9]/50 px-2 py-2 text-xs font-medium text-[#1e293b] hover:bg-[#f1f5f9]"
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                      <label
+                        title="Amount used by the next camera move"
+                        className="mt-3 flex items-center gap-3 text-[10px] text-[#727b88]"
+                      >
+                        Travel{" "}
+                        <input
+                          aria-label="Camera move amount"
+                          type="range"
+                          min="0.1"
+                          max="0.6"
+                          step="0.05"
+                          value={moveAmount}
+                          onChange={(event) =>
+                            setMoveAmount(Number(event.target.value))
+                          }
+                          className="min-w-0 flex-1 accent-[#334155]"
+                        />
+                        <span className="w-8 text-right tabular-nums">
+                          {Math.round(moveAmount * 100)}%
+                        </span>
+                      </label>
+                    </details>
+                    <TrajectoryDrawPad
+                      points={trajectoryMap.worldPoints}
+                      colors={trajectoryMap.colors}
+                      referencePosition={referenceView.position}
+                      segments={segments}
+                      selectedSegmentId={selectedSegmentId}
+                      path={path}
+                      view={
+                        drawingView ??
+                        cameraDrawingView(referenceView.quaternion)
+                      }
+                      space={trajectoryMap.space}
+                      previewing={previewing}
+                      addingPivot={addingPivot}
+                      closedLoop={closedLoop}
+                      allowBelowFloor={allowBelowFloor}
+                      disabled={false}
+                      onChange={updateDrawnSegments}
+                      onComplete={completeDrawnSegments}
+                      onSelectPart={setSelectedSegmentId}
+                      onDeletePart={deletePathPart}
+                      onApplyShape={applyPathShape}
+                      onSmooth={smoothPath}
+                      onTogglePivot={() => {
+                        setAddingPivot((current) => !current);
+                        setPreviewing(false);
+                        setPreviewProgress(null);
+                        setError(null);
+                      }}
+                      onCloseLoop={closePathLoop}
+                      onAllowBelowFloorChange={updateAllowBelowFloor}
+                      onClear={clearPath}
+                      onPlay={togglePathPreview}
+                    />{" "}
+                  </div>
+                </div>
+                <div
+                  id="studio-tab-camera"
+                  aria-labelledby="studio-tool-camera"
+                  role="tabpanel"
+                  hidden={sidebarTab !== "camera"}
+                >
+                  <CameraDirectionPanel
+                    pivots={cameraPivots}
+                    selectedPivot={selectedPivot}
+                    selectedView={selectedCameraView}
+                    directionMode={directionMode}
+                    hasDirectionTarget={directionTarget !== null}
+                    selectedPart={
+                      selectedPart
+                        ? {
+                            id: selectedPart.id,
+                            number: selectedPartIndex + 1,
+                            hasLookAtTarget:
+                              selectedPart.look_at_target != null,
+                          }
+                        : null
+                    }
+                    disabled={addingPivot}
+                    hidden={sidebarTab !== "camera" || placingDirectionTarget}
+                    onSelect={(pivot) =>
+                      selectPathPivot(
+                        pivot.segmentId,
+                        pivot.pointIndex,
+                        pivot.pivotNumber,
+                      )
+                    }
+                    onAngleChange={(pivot, quaternion) => {
+                      setPathPivotCameraAngle(
+                        pivot.segmentId,
+                        pivot.pointIndex,
+                        quaternion,
+                      );
+                    }}
+                    onDirectionModeChange={chooseDirectionMode}
+                    onChooseDirectionTarget={() => {
+                      setPlacingLookAtSegmentId(null);
+                      if (isPointDirectionMode(directionMode)) {
+                        setPendingDirectionMode(directionMode);
+                      }
+                      setPlacingDirectionTarget(true);
+                      setPreviewing(false);
+                      setPreviewProgress(null);
+                      setError(null);
+                    }}
+                    onChoosePartDirectionTarget={choosePartDirectionTarget}
+                    onRemovePartDirectionTarget={removePartLookAtTarget}
+                    onLimitDirectionTargetToPart={limitLookAtTargetToPart}
+                    allowBelowFloor={allowBelowFloor}
+                    onPositionChange={(pivot, position) =>
+                      movePathPoint(pivot.segmentId, pivot.pointIndex, position)
+                    }
+                    onDelete={deletePathPivot}
+                  />{" "}
+                </div>
+                <div
+                  id="studio-tab-video"
+                  aria-labelledby="studio-tool-video"
+                  role="tabpanel"
+                  hidden={sidebarTab !== "video"}
+                >
+                  <div className="studio-video-fields flex flex-col gap-3">
+                    <OutputNumberInput
+                      label="FOV°"
+                      value={targetFovDegrees}
+                      min={MIN_TARGET_FOV_DEGREES}
+                      max={MAX_TARGET_FOV_DEGREES}
+                      disabled={false}
+                      onChange={updateTargetFov}
+                    />
+                    <label className="block w-full">
+                      <span className="mb-1 block text-[11px] font-medium text-[#202733]/55">
+                        Video prompt <span className="text-[#334155]"></span>
+                      </span>
+                      <input
+                        aria-label="Video prompt"
+                        value={prompt}
+                        onChange={(event) => setPrompt(event.target.value)}
+                        maxLength={1000}
+                        placeholder="Example: a person walks toward the window"
+                        className="h-11 w-full rounded-md border border-[#202733]/15 bg-[#202733]/[0.06] px-3 text-sm text-[#202733] outline-none transition placeholder:text-[#202733]/55 hover:border-[#202733]/25 focus:border-[#334155] focus:ring-2 focus:ring-[#334155]/20 disabled:opacity-40"
+                      />
+                    </label>
+                  </div>{" "}
+                </div>
+              </div>
+            </aside>
+            {!sidebarOpen && (
               <button
-                ref={drawingPanelRestoreButton}
+                className="studio-sidebar-restore"
                 type="button"
-                data-overlay-toggle="path"
-                aria-label="Restore path panel"
-                aria-controls="trajectory-drawing-panel"
-                aria-expanded="false"
-                onClick={() => setDrawingPanelVisibility(true)}
-                className="studio-panel-toggle absolute left-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 px-3 text-xs font-semibold text-[#202733]/70 shadow-md  transition hover:border-[#202733]/30 hover:bg-[#ffffff] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px"
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+                onClick={() => setSidebarOpen(true)}
               >
-                <PanelLeftOpen className="h-4 w-4" />
-                Path
+                <ChevronRight className="h-4 w-4" />
               </button>
             )}
 
-            {!inspecting && views.length >= 1 && (
-              <CameraDirectionPanel
-                pose={pose}
-                pivots={cameraPivots}
-                selectedPivot={selectedPivot}
-                selectedView={selectedCameraView}
-                aspectRatio={aspectRatio}
-                frameWidth={targetFormat.width}
-                frameHeight={targetFormat.height}
-                directionMode={directionMode}
-                hasDirectionTarget={directionTarget !== null}
-                selectedPart={
-                  selectedPart
-                    ? {
-                        id: selectedPart.id,
-                        number: selectedPartIndex + 1,
-                        hasLookAtTarget: selectedPart.look_at_target != null,
-                      }
-                    : null
+            {(selectedCameraView || playingCamera) && (
+              <div
+                style={
+                  {
+                    "--camera-aspect": targetFormat.width / targetFormat.height,
+                  } as React.CSSProperties
                 }
-                disabled={addingPivot}
-                hidden={!directionPanelOpen || placingDirectionTarget}
-                minimizeButtonRef={directionPanelMinimizeButton}
-                onMinimize={() => setDirectionPanelVisibility(false)}
-                onSelect={(pivot) =>
-                  selectPathPivot(
-                    pivot.segmentId,
-                    pivot.pointIndex,
-                    pivot.pivotNumber,
-                  )
-                }
-                onAngleChange={(pivot, quaternion) => {
-                  setPathPivotCameraAngle(
-                    pivot.segmentId,
-                    pivot.pointIndex,
-                    quaternion,
-                  );
-                }}
-                onDirectionModeChange={chooseDirectionMode}
-                onChooseDirectionTarget={() => {
-                  setPlacingLookAtSegmentId(null);
-                  if (isPointDirectionMode(directionMode)) {
-                    setPendingDirectionMode(directionMode);
-                  }
-                  setPlacingDirectionTarget(true);
-                  setPreviewing(false);
-                  setPreviewProgress(null);
-                  setError(null);
-                }}
-                onChoosePartDirectionTarget={choosePartDirectionTarget}
-                onRemovePartDirectionTarget={removePartLookAtTarget}
-                onLimitDirectionTargetToPart={limitLookAtTargetToPart}
-                allowBelowFloor={allowBelowFloor}
-                onPositionChange={(pivot, position) =>
-                  movePathPoint(pivot.segmentId, pivot.pointIndex, position)
-                }
-                onDelete={deletePathPivot}
-              />
-            )}
-
-            {!inspecting &&
-              !placingDirectionTarget &&
-              views.length >= 1 &&
-              !directionPanelOpen && (
-                <button
-                  ref={directionPanelRestoreButton}
-                  type="button"
-                  data-overlay-toggle="direction"
-                  aria-label="Restore camera direction panel"
-                  aria-controls="camera-direction-panel"
-                  aria-expanded="false"
-                  onClick={() => setDirectionPanelVisibility(true)}
-                  className="studio-panel-toggle absolute right-3 top-3 z-30 flex h-10 items-center gap-2 rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 px-3 text-xs font-semibold text-[#202733]/70 shadow-md  transition hover:border-[#202733]/30 hover:bg-[#ffffff] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px"
+                className={`studio-camera-inset ${cameraViewExpanded ? "is-expanded" : ""}`}
+              >
+                <div className="studio-camera-inset-header">
+                  <span>
+                    {playingCamera
+                      ? "Playback"
+                      : `Camera ${selectedPivot?.pivotNumber ?? ""}`}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={
+                      cameraViewExpanded
+                        ? "Minimize camera view"
+                        : "Expand camera view"
+                    }
+                    title="Toggle full screen camera view"
+                    onClick={() => setCameraViewExpanded(!cameraViewExpanded)}
+                  >
+                    {cameraViewExpanded ? (
+                      <Minimize2 className="h-3 w-3" />
+                    ) : (
+                      <Maximize2 className="h-3 w-3" />
+                    )}
+                  </button>
+                </div>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Toggle full screen camera view"
+                  onClick={() => setCameraViewExpanded(!cameraViewExpanded)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter")
+                      setCameraViewExpanded(!cameraViewExpanded);
+                    if (event.key === "Escape") setCameraViewExpanded(false);
+                  }}
+                  className="studio-camera-inset-image"
+                  style={{
+                    aspectRatio: `${targetFormat.width} / ${targetFormat.height}`,
+                  }}
                 >
-                  Aim
-                  <PanelRightOpen className="h-4 w-4" />
-                </button>
-              )}
-
+                  {playingCamera ? (
+                    <CameraPlaybackView
+                      pose={pose}
+                      views={views}
+                      previewing={previewing}
+                      previewProgress={previewProgress}
+                      onPreviewProgress={setPreviewProgress}
+                      frameCount={frameCount}
+                      previewSeconds={frameCount / fps}
+                      frameWidth={targetFormat.width}
+                      frameHeight={targetFormat.height}
+                      directionMode={directionMode}
+                      directionTarget={effectiveDirectionTarget ?? null}
+                      closedLoop={closedLoop}
+                      allowBelowFloor={allowBelowFloor}
+                      onPreviewDone={() => {
+                        setPreviewing(false);
+                        setPreviewProgress(1);
+                      }}
+                    />
+                  ) : (
+                    <CameraPointCloudView
+                      pose={pose}
+                      view={selectedCameraView!}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
             <div
               data-studio-controls
               ref={observeControlsDock}
               className="studio-controls-dock absolute inset-x-3 bottom-3 z-40 mx-auto max-w-6xl"
             >
-              {!inspecting && error && (
+              {error && (
                 <div className="studio-controls-feedback mb-2 rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-center text-xs text-red-800 backdrop-blur">
                   {error}
                 </div>
               )}
-              {!inspecting && notice && (
+              {notice && (
                 <div
                   role="status"
                   aria-live="polite"
@@ -2265,7 +2342,7 @@ export function CameraTrajectoryPage({
                       className="block w-full accent-[#334155]"
                     />
                   </div>
-                  {inspecting && (
+                  {playingCamera && (
                     <button
                       type="button"
                       onClick={() => {
@@ -2274,54 +2351,30 @@ export function CameraTrajectoryPage({
                       }}
                       className="shrink-0 text-xs font-medium text-[#334155]"
                     >
-                      Edit path
+                      Stop preview
                     </button>
                   )}
                 </div>
               )}
 
-              {!inspecting && (
+              {
                 <div
                   aria-hidden={placingDirectionTarget ? true : undefined}
                   inert={placingDirectionTarget ? true : undefined}
                   className={`studio-output-controls relative flex items-center gap-2 rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-2.5 pl-4 shadow-sm  sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
                 >
-                  <details
-                    className="studio-video-settings"
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.currentTarget.open = false;
-                        event.currentTarget.querySelector("summary")?.focus();
-                      }
+                  <button
+                    type="button"
+                    title="Video settings"
+                    aria-label="Video settings"
+                    onClick={() => {
+                      setSidebarOpen(true);
+                      setSidebarTab("video");
                     }}
+                    className="studio-video-toggle"
                   >
-                    <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md px-2 text-xs font-medium text-[#334155] hover:bg-[#f1f5f9]">
-                      Video settings <ChevronDown className="h-3.5 w-3.5" />
-                    </summary>
-                    <div className="studio-video-fields absolute bottom-[calc(100%+0.5rem)] right-0 flex w-[min(28rem,calc(100vw-1.5rem))] items-end gap-3 rounded-lg border border-[#202733]/15 bg-white p-3 shadow-sm">
-                      <OutputNumberInput
-                        label="FOV°"
-                        value={targetFovDegrees}
-                        min={MIN_TARGET_FOV_DEGREES}
-                        max={MAX_TARGET_FOV_DEGREES}
-                        disabled={false}
-                        onChange={updateTargetFov}
-                      />
-                      <label className="block min-w-0 flex-1">
-                        <span className="mb-1 block text-[11px] font-medium text-[#202733]/55">
-                          Video prompt <span className="text-[#334155]"></span>
-                        </span>
-                        <input
-                          aria-label="Video prompt"
-                          value={prompt}
-                          onChange={(event) => setPrompt(event.target.value)}
-                          maxLength={1000}
-                          placeholder="Example: a person walks toward the window"
-                          className="h-11 w-full rounded-md border border-[#202733]/15 bg-[#202733]/[0.06] px-3 text-sm text-[#202733] outline-none transition placeholder:text-[#202733]/55 hover:border-[#202733]/25 focus:border-[#334155] focus:ring-2 focus:ring-[#334155]/20 disabled:opacity-40"
-                        />
-                      </label>
-                    </div>
-                  </details>
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </button>
 
                   <button
                     type="button"
@@ -2353,6 +2406,8 @@ export function CameraTrajectoryPage({
                       savingDraft
                     }
                     onClick={() => void generate()}
+                    aria-label="Generate video"
+                    title="Generate video"
                     className="studio-generate ml-auto flex h-9 items-center justify-center gap-2 rounded-md bg-[#334155] px-3 text-sm font-semibold text-white transition hover:bg-[#1e293b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/70 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 sm:px-4"
                   >
                     {submitting ? (
@@ -2360,22 +2415,25 @@ export function CameraTrajectoryPage({
                     ) : (
                       <Sparkles className="h-4 w-4" />
                     )}
-                    {views.length < 2
-                      ? "Choose a path"
-                      : !PORTRAIT_GENERATION_ENABLED && aspectRatio === "9:16"
-                        ? "9:16 unavailable"
-                        : requiredFrameCount > MAX_FRAME_COUNT
-                          ? "Remove path points"
-                          : frameCount < requiredFrameCount
-                            ? `Use ${requiredFrameCount}+ frames`
-                            : !prompt.trim()
-                              ? "Add a prompt"
-                              : submitting
-                                ? `Starting ${seedCount}…`
-                                : `Generate ${seedCount === 1 ? "video" : `${seedCount} videos`}`}
+                    <span className="studio-generate-text">
+                      {" "}
+                      {views.length < 2
+                        ? "Choose a path"
+                        : !PORTRAIT_GENERATION_ENABLED && aspectRatio === "9:16"
+                          ? "9:16 unavailable"
+                          : requiredFrameCount > MAX_FRAME_COUNT
+                            ? "Remove path points"
+                            : frameCount < requiredFrameCount
+                              ? `Use ${requiredFrameCount}+ frames`
+                              : !prompt.trim()
+                                ? "Add a prompt"
+                                : submitting
+                                  ? `Starting ${seedCount}…`
+                                  : `Generate ${seedCount === 1 ? "video" : `${seedCount} videos`}`}
+                    </span>
                   </button>
                 </div>
-              )}
+              }
             </div>
           </main>
         </div>
@@ -2415,20 +2473,14 @@ export function CameraTrajectoryPage({
 }
 
 function CameraDirectionPanel({
-  pose,
   pivots,
   selectedPivot,
   selectedView,
-  aspectRatio,
-  frameWidth,
-  frameHeight,
   directionMode,
   hasDirectionTarget,
   selectedPart,
   disabled,
   hidden,
-  minimizeButtonRef,
-  onMinimize,
   onSelect,
   onAngleChange,
   onDirectionModeChange,
@@ -2440,13 +2492,9 @@ function CameraDirectionPanel({
   allowBelowFloor,
   onPositionChange,
 }: {
-  pose: PosedView;
   pivots: readonly TrajectoryPivot[];
   selectedPivot: SelectedPivot | null;
   selectedView: CameraView | null;
-  aspectRatio: CameraTrajectoryAspectRatio;
-  frameWidth: number;
-  frameHeight: number;
   directionMode: CameraDirectionMode;
   hasDirectionTarget: boolean;
   selectedPart: {
@@ -2456,8 +2504,6 @@ function CameraDirectionPanel({
   } | null;
   disabled: boolean;
   hidden: boolean;
-  minimizeButtonRef: RefObject<HTMLButtonElement | null>;
-  onMinimize: () => void;
   onSelect: (pivot: TrajectoryPivot) => void;
   onAngleChange: (
     pivot: SelectedPivot,
@@ -2473,195 +2519,58 @@ function CameraDirectionPanel({
   onPositionChange: (pivot: SelectedPivot, position: TrajectoryPoint) => void;
 }) {
   const selectedPosition = pivots.find(
-    (pivot) =>
-      pivot.segmentId === selectedPivot?.segmentId &&
-      pivot.pointIndex === selectedPivot?.pointIndex,
+    (p) =>
+      p.segmentId === selectedPivot?.segmentId &&
+      p.pointIndex === selectedPivot?.pointIndex,
   )?.position;
-  const [previewQuaternion, setPreviewQuaternion] =
-    useState<TrajectoryQuaternion | null>(null);
-  const aimDrag = useRef<{
-    pointerId: number;
-    target: HTMLDivElement;
-    pivot: SelectedPivot;
-    startX: number;
-    startY: number;
-    startAim: { yaw: number; pitch: number };
-    quaternion: TrajectoryQuaternion;
-    moved: boolean;
-  } | null>(null);
-  const displayedQuaternion =
-    previewQuaternion ?? selectedView?.quaternion ?? null;
-  const aim = displayedQuaternion
-    ? cameraAimDegrees(displayedQuaternion)
-    : null;
+  const aim = selectedView ? cameraAimDegrees(selectedView.quaternion) : null;
   const pointDirectionMode = isPointDirectionMode(directionMode);
-  const selectedPivotUsesPartTarget = Boolean(
-    selectedPivot &&
-    pivots.find((pivot) => pivot.pivotNumber === selectedPivot.pivotNumber)
-      ?.hasLookAtTarget,
-  );
   const selectedUsesPointTarget =
-    pointDirectionMode || selectedPivotUsesPartTarget;
-
-  useEffect(() => {
-    const activeDrag = aimDrag.current;
-    aimDrag.current = null;
-    if (activeDrag?.target.hasPointerCapture(activeDrag.pointerId)) {
-      activeDrag.target.releasePointerCapture(activeDrag.pointerId);
-    }
-    setPreviewQuaternion(selectedView?.quaternion ?? null);
-  }, [selectedPivot, selectedView]);
-
-  function startAimDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    if (
-      disabled ||
-      selectedUsesPointTarget ||
-      event.button !== 0 ||
-      !selectedPivot ||
-      !displayedQuaternion
-    )
-      return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    aimDrag.current = {
-      pointerId: event.pointerId,
-      target: event.currentTarget,
-      pivot: selectedPivot,
-      startX: event.clientX,
-      startY: event.clientY,
-      startAim: cameraAimDegrees(displayedQuaternion),
-      quaternion: displayedQuaternion,
-      moved: false,
-    };
-  }
-
-  function continueAimDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const activeDrag = aimDrag.current;
-    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
-    const horizontalPixels = event.clientX - activeDrag.startX;
-    const verticalPixels = event.clientY - activeDrag.startY;
-    if (!activeDrag.moved && Math.hypot(horizontalPixels, verticalPixels) < 3) {
-      return;
-    }
-    activeDrag.moved = true;
-    activeDrag.quaternion = cameraQuaternionFromAim(
-      activeDrag.startAim.yaw + horizontalPixels * 0.3,
-      activeDrag.startAim.pitch - verticalPixels * 0.3,
+    pointDirectionMode ||
+    Boolean(
+      pivots.find((p) => p.pivotNumber === selectedPivot?.pivotNumber)
+        ?.hasLookAtTarget,
     );
-    setPreviewQuaternion(activeDrag.quaternion);
-  }
-
-  function finishAimDrag(
-    event: ReactPointerEvent<HTMLDivElement>,
-    commit: boolean,
-  ) {
-    const activeDrag = aimDrag.current;
-    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
-    aimDrag.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    if (commit && activeDrag.moved) {
-      onAngleChange(activeDrag.pivot, activeDrag.quaternion);
-    } else {
-      setPreviewQuaternion(selectedView?.quaternion ?? null);
-    }
-  }
-
-  function nudgeAim(yawDelta: number, pitchDelta: number) {
-    if (disabled || selectedUsesPointTarget || !selectedPivot || !aim) return;
-    const quaternion = cameraQuaternionFromAim(
-      aim.yaw + yawDelta,
-      aim.pitch + pitchDelta,
-    );
-    setPreviewQuaternion(quaternion);
-    onAngleChange(selectedPivot, quaternion);
-  }
-
   return (
-    <aside
+    <section
       id="camera-direction-panel"
       hidden={hidden}
-      aria-label="Camera direction"
-      className="absolute right-3 top-3 z-20 studio-floating-panel w-[calc(100%-1.5rem)] max-w-[22rem] overflow-y-auto rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-3 shadow-sm "
+      aria-label="Camera properties"
     >
-      <div className="flex items-start justify-between gap-3 border-b border-[#202733]/10 pb-2.5">
-        <div>
-          <h2 className="text-sm font-semibold text-[#202733]">
-            Camera direction
-          </h2>
-          <p className="mt-1 text-[11px] leading-4 text-[#202733]/60">
-            Select a camera to move or aim it.
-          </p>
-        </div>
-        <button
-          ref={minimizeButtonRef}
-          type="button"
-          data-overlay-toggle="direction"
-          aria-label="Minimize camera direction panel"
-          aria-controls="camera-direction-panel"
-          aria-expanded="true"
-          title="Minimize camera direction panel"
-          onClick={onMinimize}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#202733]/10 text-[#202733]/60 transition hover:border-[#202733]/25 hover:bg-[#202733]/[0.07] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px"
-        >
-          <PanelRightClose className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <div
-          aria-label="Choose camera point"
-          className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-1"
-        >
-          {pivots.map((pivot) => {
-            const selected = pivot.pivotNumber === selectedPivot?.pivotNumber;
-            const partTargeted = pivot.hasLookAtTarget;
-            return (
-              <button
-                key={`${pivot.segmentId}:${pivot.pointIndex}`}
-                type="button"
-                data-camera-point={pivot.pivotNumber}
-                data-part-look-at-camera={partTargeted ? "true" : "false"}
-                aria-label={`Select camera at point ${pivot.pivotNumber}`}
-                aria-pressed={selected}
-                onClick={() => onSelect(pivot)}
-                className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border text-xs font-semibold tabular-nums transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px ${
-                  selected
-                    ? partTargeted
-                      ? "border-[#64748b] bg-[#64748b] text-[#202733]"
-                      : "border-[#202733] bg-white text-[#202733]"
-                    : partTargeted
-                      ? "border-[#64748b]/55 bg-[#64748b]/10 text-[#64748b] hover:border-[#64748b] hover:bg-[#64748b]/20"
-                      : "border-[#202733]/15 bg-[#202733]/[0.06] text-[#202733]/60 hover:border-[#202733]/30 hover:text-[#202733]"
-                } ${!pointDirectionMode && pivot.hasCameraAngle ? "ring-1 ring-[#334155]/80 ring-offset-1 ring-offset-[#ffffff]" : ""}`}
-              >
-                {pivot.pivotNumber}
-              </button>
-            );
-          })}
-        </div>
+      <div className="studio-camera-list" aria-label="Cameras">
+        {pivots.map((pivot) => (
+          <button
+            type="button"
+            key={`${pivot.segmentId}:${pivot.pointIndex}`}
+            data-camera-point={pivot.pivotNumber}
+            aria-label={`Select camera at point ${pivot.pivotNumber}`}
+            aria-pressed={pivot.pivotNumber === selectedPivot?.pivotNumber}
+            onClick={() => onSelect(pivot)}
+          >
+            <span>{pivot.pivotNumber}</span>
+            <Camera className="h-3.5 w-3.5" />
+          </button>
+        ))}
         {selectedPivot && (
           <button
             type="button"
-            data-delete-camera-point={selectedPivot.pivotNumber}
+            className="ml-auto"
+            title="Delete camera"
             aria-label={`Delete camera point ${selectedPivot.pivotNumber}`}
             disabled={disabled}
             onClick={() => onDelete(selectedPivot)}
-            title={`Delete camera ${selectedPivot.pivotNumber} (Delete / Backspace)`}
-            className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-red-400/25 bg-red-500/[0.06] px-2 text-[11px] font-medium text-red-700 transition hover:border-red-400/45 hover:bg-red-500/10 hover:text-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Delete {selectedPivot.pivotNumber}
           </button>
         )}
       </div>
-
-      {selectedPivot && selectedView && selectedPosition && aim ? (
+      {selectedPivot && selectedPosition && aim ? (
         <>
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="studio-property-heading">Position</div>
+          <div className="grid grid-cols-3 gap-1">
             {(["X", "Y", "Z"] as const).map((axis, index) => (
               <CameraPositionInput
-                key={`${selectedPivot.segmentId}:${selectedPivot.pointIndex}:${axis}`}
+                key={`${selectedPivot.pivotNumber}:${axis}`}
                 axis={axis}
                 value={selectedPosition[index]}
                 min={axis === "Y" && !allowBelowFloor ? 0 : undefined}
@@ -2673,241 +2582,102 @@ function CameraDirectionPanel({
               />
             ))}
           </div>
-          <div
-            role={selectedUsesPointTarget ? "img" : "application"}
-            aria-label={
-              selectedUsesPointTarget
-                ? "View from the selected camera"
-                : "Drag the preview to aim the selected camera"
-            }
-            data-camera-aim-preview={selectedPivot.pivotNumber}
-            onPointerDown={selectedUsesPointTarget ? undefined : startAimDrag}
-            onPointerMove={
-              selectedUsesPointTarget ? undefined : continueAimDrag
-            }
-            onPointerUp={
-              selectedUsesPointTarget
-                ? undefined
-                : (event) => finishAimDrag(event, true)
-            }
-            onPointerCancel={
-              selectedUsesPointTarget
-                ? undefined
-                : (event) => finishAimDrag(event, false)
-            }
-            onLostPointerCapture={
-              selectedUsesPointTarget
-                ? undefined
-                : (event) => finishAimDrag(event, false)
-            }
-            className={`relative mt-2.5 select-none overflow-hidden rounded-lg border border-[#202733]/15 bg-[#ffffff] ${selectedUsesPointTarget ? "touch-auto" : "touch-none"} ${aspectRatio === "9:16" ? "mx-auto w-[58%]" : "w-full"} ${disabled ? "cursor-not-allowed opacity-40" : selectedUsesPointTarget ? "cursor-default" : "cursor-grab active:cursor-grabbing"}`}
-            style={{ aspectRatio: `${frameWidth} / ${frameHeight}` }}
-          >
-            <div
-              data-camera-preview-renderer="dense-splats"
-              aria-label="View from the selected camera"
-              className="pointer-events-none absolute inset-0"
-            >
-              <CameraPointCloudView
-                pose={pose}
-                view={{
-                  ...selectedView,
-                  quaternion: displayedQuaternion!,
-                }}
-              />
-            </div>
-            <div className="pointer-events-none absolute left-2 top-2 rounded border border-[#202733]/15 bg-[#ffffff]/80 px-2 py-1 text-[10px] font-medium text-[#202733]/65 backdrop-blur">
-              Camera {selectedPivot.pivotNumber} preview
-            </div>
-            <div className="pointer-events-none absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2">
-              <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-[#202733]/55" />
-              <span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-[#202733]/55" />
-            </div>
-          </div>
-          <p className="mt-1.5 text-[10px] leading-4 text-[#202733]/55">
-            {selectedUsesPointTarget
-              ? selectedPivotUsesPartTarget && !pointDirectionMode
-                ? "This camera follows this part's target."
-                : "This camera follows the selected target."
-              : "Drag to aim. Position stays fixed."}
-          </p>
-
           {!selectedUsesPointTarget && (
-            <div className="mt-3 space-y-2.5">
-              <div>
-                <p className="flex items-center justify-between text-[11px] font-medium text-[#202733]/60">
-                  <span>Yaw · left / right</span>
-                  <span className="font-mono text-[10px] tabular-nums text-[#1e293b]">
-                    {Math.round(aim.yaw)}°
-                  </span>
-                </p>
-                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                  <CameraAimButton
-                    label="← Left"
-                    disabled={disabled}
-                    onClick={() => nudgeAim(-5, 0)}
-                  />
-                  <CameraAimButton
-                    label="Right →"
-                    disabled={disabled}
-                    onClick={() => nudgeAim(5, 0)}
-                  />
-                </div>
+            <>
+              <div className="studio-property-heading">Rotation</div>
+              <div className="grid grid-cols-2 gap-1">
+                <CameraPositionInput
+                  axis="Yaw"
+                  value={aim.yaw}
+                  onChange={(value) =>
+                    onAngleChange(
+                      selectedPivot,
+                      cameraQuaternionFromAim(value, aim.pitch),
+                    )
+                  }
+                />
+                <CameraPositionInput
+                  axis="Pitch"
+                  value={aim.pitch}
+                  min={-89}
+                  max={89}
+                  onChange={(value) =>
+                    onAngleChange(
+                      selectedPivot,
+                      cameraQuaternionFromAim(aim.yaw, value),
+                    )
+                  }
+                />
               </div>
-              <div>
-                <p className="flex items-center justify-between text-[11px] font-medium text-[#202733]/60">
-                  <span>Pitch · down / up</span>
-                  <span className="font-mono text-[10px] tabular-nums text-[#1e293b]">
-                    {Math.round(aim.pitch)}°
-                  </span>
-                </p>
-                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                  <CameraAimButton
-                    label="↓ Down"
-                    disabled={disabled}
-                    onClick={() => nudgeAim(0, -5)}
-                  />
-                  <CameraAimButton
-                    label="Up ↑"
-                    disabled={disabled}
-                    onClick={() => nudgeAim(0, 5)}
-                  />
-                </div>
-              </div>
-            </div>
+            </>
           )}
         </>
       ) : (
-        <div
-          className={`mt-3 grid place-items-center rounded-lg border border-dashed border-[#202733]/15 bg-[#202733]/[0.025] px-8 text-center text-xs leading-5 text-[#202733]/60 ${aspectRatio === "9:16" ? "mx-auto w-[58%]" : "w-full"}`}
-          style={{ aspectRatio: `${frameWidth} / ${frameHeight}` }}
-        >
-          Select a camera to see its view.
-        </div>
-      )}
-      <div className="mt-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#202733]/60">
-          Aim
+        <p className="py-3 text-[11px] text-slate-500">
+          Select a camera in the viewport.
         </p>
-        <div
-          role="group"
-          aria-label="Aim"
-          className="mt-1.5 grid grid-cols-2 gap-1.5"
-        >
-          {CAMERA_DIRECTION_PRESETS.map((preset) => {
-            const selected = directionMode === preset.mode;
-            return (
-              <button
-                key={preset.mode}
-                type="button"
-                data-camera-direction-mode={preset.mode}
-                aria-pressed={selected}
-                title={preset.title}
-                onClick={() => onDirectionModeChange(preset.mode)}
-                className={`h-8 rounded-md border px-2 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px ${
-                  selected
-                    ? "border-[#334155] bg-[#334155] text-white"
-                    : "border-[#202733]/15 bg-[#202733]/[0.04] text-[#202733]/60 hover:border-[#202733]/30 hover:text-[#202733]"
-                }`}
-              >
-                {preset.label}
-              </button>
-            );
-          })}
-        </div>
-        {directionMode !== "manual" && !isPointDirectionMode(directionMode) && (
-          <p className="mt-1.5 text-[10px] leading-4 text-[#202733]/55">
-            Adjusted cameras override this preset; the rest stay automatic.
-          </p>
-        )}
+      )}
+      <div className="studio-property-heading">Aim</div>
+      <div className="grid grid-cols-2 gap-1" role="group" aria-label="Aim">
+        {CAMERA_DIRECTION_PRESETS.map((preset) => (
+          <button
+            type="button"
+            key={preset.mode}
+            data-camera-direction-mode={preset.mode}
+            aria-pressed={directionMode === preset.mode}
+            title={preset.title}
+            onClick={() => onDirectionModeChange(preset.mode)}
+            className="studio-property-button"
+          >
+            {preset.label}
+          </button>
+        ))}
       </div>
-
       {pointDirectionMode && (
-        <div className="mt-3 flex flex-col items-stretch gap-2 rounded-lg border border-[#64748b]/25 bg-[#64748b]/[0.06] p-2.5">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-[#64748b]">
-              {hasDirectionTarget ? "Target selected" : "Choose a target"}
-            </p>
-            <p className="mt-0.5 text-[10px] leading-4 text-[#202733]/60">
-              Every camera points{" "}
-              {directionMode === "look_at" ? "at" : "away from"} this spot with
-              a level horizon.
-            </p>
+        <button
+          type="button"
+          data-change-direction-target="true"
+          onClick={onChooseDirectionTarget}
+          className="studio-property-button mt-2 inline-flex items-center gap-1"
+        >
+          <Crosshair className="h-3 w-3" />
+          {hasDirectionTarget ? "Target" : "Pick target"}
+        </button>
+      )}
+      {selectedPart && (
+        <div className="mt-3 border-t border-slate-200 pt-2">
+          <div className="flex items-center justify-between text-[10px] text-slate-500">
+            <span>Part {selectedPart.number}</span>
+            {selectedPart.hasLookAtTarget && (
+              <button
+                type="button"
+                title="Remove part target"
+                onClick={() => onRemovePartDirectionTarget(selectedPart.id)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </div>
           <button
             type="button"
-            data-change-direction-target="true"
-            onClick={onChooseDirectionTarget}
-            className="h-8 shrink-0 rounded-md border border-[#64748b]/35 bg-[#64748b]/10 px-2.5 text-[11px] font-semibold text-[#64748b] transition hover:bg-[#64748b]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#64748b] active:translate-y-px"
+            className="studio-property-button mt-1"
+            onClick={() => {
+              if (
+                !selectedPart.hasLookAtTarget &&
+                directionMode === "look_at" &&
+                hasDirectionTarget
+              )
+                onLimitDirectionTargetToPart(selectedPart.id);
+              else onChoosePartDirectionTarget(selectedPart.id);
+            }}
           >
-            {hasDirectionTarget ? "Change point" : "Choose point"}
+            {selectedPart.hasLookAtTarget
+              ? "Part target · change"
+              : "Set part target"}
           </button>
         </div>
       )}
-
-      {selectedPart && (
-        <div
-          data-part-look-at={selectedPart.hasLookAtTarget ? "set" : "unset"}
-          className="mt-3 rounded-lg border border-[#202733]/15 bg-[#202733]/[0.035] p-2.5"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-[#202733]/70">
-                Selected Part {selectedPart.number}
-              </p>
-              <p className="mt-0.5 text-[10px] leading-4 text-[#202733]/60">
-                {selectedPart.hasLookAtTarget
-                  ? "This part looks at its own scene point."
-                  : pointDirectionMode
-                    ? "The whole path currently uses the scene target."
-                    : "This part follows the path aim setting."}
-              </p>
-            </div>
-            {selectedPart.hasLookAtTarget && (
-              <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#64748b] " />
-            )}
-          </div>
-          {selectedPart.hasLookAtTarget ? (
-            <div className="mt-2 grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                data-change-part-look-at={selectedPart.number}
-                onClick={() => onChoosePartDirectionTarget(selectedPart.id)}
-                className="h-8 rounded-md border border-[#64748b]/35 bg-[#64748b]/10 px-2 text-[11px] font-semibold text-[#64748b] transition hover:bg-[#64748b]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#64748b] active:translate-y-px"
-              >
-                Change point
-              </button>
-              <button
-                type="button"
-                data-remove-part-look-at={selectedPart.number}
-                onClick={() => onRemovePartDirectionTarget(selectedPart.id)}
-                className="h-8 rounded-md border border-[#202733]/15 px-2 text-[11px] font-semibold text-[#202733]/55 transition hover:border-[#202733]/30 hover:bg-[#202733]/[0.06] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px"
-              >
-                Remove
-              </button>
-            </div>
-          ) : directionMode === "look_at" && hasDirectionTarget ? (
-            <button
-              type="button"
-              data-limit-look-at-to-part={selectedPart.number}
-              onClick={() => onLimitDirectionTargetToPart(selectedPart.id)}
-              className="mt-2 h-8 w-full rounded-md border border-[#64748b]/35 bg-[#64748b]/10 px-2 text-[11px] font-semibold text-[#64748b] transition hover:bg-[#64748b]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#64748b] active:translate-y-px"
-            >
-              Look here only for Part {selectedPart.number}
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-add-part-look-at={selectedPart.number}
-              onClick={() => onChoosePartDirectionTarget(selectedPart.id)}
-              className="mt-2 h-8 w-full rounded-md border border-[#64748b]/35 bg-[#64748b]/10 px-2 text-[11px] font-semibold text-[#64748b] transition hover:bg-[#64748b]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#64748b] active:translate-y-px"
-            >
-              Look at a point for Part {selectedPart.number}
-            </button>
-          )}
-        </div>
-      )}
-    </aside>
+    </section>
   );
 }
 
@@ -2915,40 +2685,109 @@ function CameraPositionInput({
   axis,
   value,
   min,
+  max,
   onChange,
 }: {
   axis: string;
   value: number;
   min?: number;
+  max?: number;
   onChange: (value: number) => void;
 }) {
+  const dragValue = useRef<{
+    x: number;
+    value: number;
+    startValue: number;
+    pointerId: number;
+  } | null>(null);
   const cancel = useRef(false);
+  const dirty = useRef(false);
   const [draft, setDraft] = useState(String(Number(value.toFixed(3))));
-  useEffect(() => setDraft(String(Number(value.toFixed(3)))), [value]);
+  useEffect(() => {
+    setDraft(String(Number(value.toFixed(3))));
+    dirty.current = false;
+  }, [value]);
   function commit() {
     if (cancel.current) {
       cancel.current = false;
+      dirty.current = false;
       return;
     }
+    if (!dirty.current) return;
+    dirty.current = false;
     const parsed = Number(draft);
     if (!draft.trim() || !Number.isFinite(parsed)) {
       setDraft(String(Number(value.toFixed(3))));
       return;
     }
-    const next = min === undefined ? parsed : Math.max(min, parsed);
+    const next = THREE.MathUtils.clamp(
+      parsed,
+      min ?? -Infinity,
+      max ?? Infinity,
+    );
     setDraft(String(next));
     if (next !== value) onChange(next);
   }
   return (
     <label className="text-[10px] font-medium text-[#727b88]">
-      Position {axis}
+      <span
+        className="studio-scrub-label"
+        title={`Drag ${axis} to adjust; Shift for fine increments`}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.parentElement?.querySelector("input")?.focus();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          dragValue.current = {
+            x: event.clientX,
+            value,
+            startValue: value,
+            pointerId: event.pointerId,
+          };
+        }}
+        onPointerMove={(event) => {
+          const active = dragValue.current;
+          if (!active || active.pointerId !== event.pointerId) return;
+          const step = axis === "Yaw" || axis === "Pitch" ? 0.5 : 0.01;
+          const next = scrubNumber(
+            active.value,
+            event.clientX - active.x,
+            step,
+            event.shiftKey,
+            min,
+            max,
+          );
+          active.x = event.clientX;
+          active.value = next;
+          onChange(Number(next.toFixed(3)));
+        }}
+        onPointerUp={(event) => {
+          dragValue.current = null;
+          if (event.currentTarget.hasPointerCapture(event.pointerId))
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          const active = dragValue.current;
+          dragValue.current = null;
+          if (active) onChange(active.startValue);
+        }}
+        onLostPointerCapture={() => {
+          dragValue.current = null;
+        }}
+      >
+        {axis}
+      </span>
       <input
         aria-label={`Camera position ${axis}`}
         type="number"
         step="0.01"
         min={min}
+        max={max}
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          dirty.current = true;
+          setDraft(event.target.value);
+        }}
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
@@ -3046,7 +2885,6 @@ function TrajectoryDrawPad({
   closedLoop,
   allowBelowFloor,
   disabled,
-  panelSizeIndex,
   onChange,
   onComplete,
   onSelectPart,
@@ -3058,7 +2896,6 @@ function TrajectoryDrawPad({
   onAllowBelowFloorChange,
   onClear,
   onPlay,
-  onPanelSizeChange,
 }: {
   points: readonly TrajectoryPoint[];
   colors: readonly string[];
@@ -3073,7 +2910,6 @@ function TrajectoryDrawPad({
   closedLoop: boolean;
   allowBelowFloor: boolean;
   disabled: boolean;
-  panelSizeIndex: number;
   onChange: (segments: TrajectorySegment[]) => void;
   onComplete: (segments: TrajectorySegment[]) => void;
   onSelectPart: (id: string) => void;
@@ -3085,7 +2921,6 @@ function TrajectoryDrawPad({
   onAllowBelowFloorChange: (allowBelowFloor: boolean) => void;
   onClear: () => void;
   onPlay: () => void;
-  onPanelSizeChange: (index: number) => void;
 }) {
   const [frozenView, setFrozenView] = useState<TrajectoryDrawingView | null>(
     null,
@@ -3120,7 +2955,6 @@ function TrajectoryDrawPad({
     [allowBelowFloor, displayView, path, referencePosition, space],
   );
   const displaySpace = frozenSpace ?? drawingSpace;
-  const panelSize = DRAWING_PANEL_SIZES[panelSizeIndex]!;
   const selectedPartIndex = segments.findIndex(
     (segment) => segment.id === selectedSegmentId,
   );
@@ -3310,46 +3144,7 @@ function TrajectoryDrawPad({
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <Rotate3D className="h-3.5 w-3.5 text-[#202733]/60" />
-          <h2 className="text-sm font-semibold text-[#202733]">Camera path</h2>
-        </div>
-        <div
-          className="flex h-7 items-center overflow-hidden rounded-md border border-[#202733]/15 bg-[#202733]/[0.04]"
-          aria-label="Drawing panel size"
-        >
-          <button
-            type="button"
-            disabled={panelSizeIndex === 0}
-            onClick={() => onPanelSizeChange(Math.max(0, panelSizeIndex - 1))}
-            aria-label="Make drawing panel smaller"
-            title="Make drawing panel smaller"
-            className="grid h-full w-7 place-items-center text-[#202733]/55 transition hover:bg-[#202733]/10 hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#334155]/60 disabled:opacity-25"
-          >
-            <ZoomOut className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onPanelSizeChange(DEFAULT_DRAWING_PANEL_SIZE_INDEX)}
-            aria-label={`Reset drawing panel size from ${panelSize.label} to Medium`}
-            title="Reset drawing panel size"
-            className="h-full min-w-14 border-x border-[#202733]/10 px-1.5 text-[10px] font-semibold text-[#202733]/75 transition hover:bg-[#202733]/10 hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#334155]/60"
-          >
-            {panelSize.label}
-          </button>
-          <button
-            type="button"
-            disabled={panelSizeIndex === DRAWING_PANEL_SIZES.length - 1}
-            onClick={() =>
-              onPanelSizeChange(
-                Math.min(DRAWING_PANEL_SIZES.length - 1, panelSizeIndex + 1),
-              )
-            }
-            aria-label="Make drawing panel larger"
-            title="Make drawing panel larger"
-            className="grid h-full w-7 place-items-center text-[#202733]/55 transition hover:bg-[#202733]/10 hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#334155]/60 disabled:opacity-25"
-          >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </button>
+          <h2 className="sr-only">Camera path</h2>
         </div>
       </div>
 
