@@ -10,6 +10,8 @@ export const CAMERA_MOVE_PRESETS = [
   { id: "pull", label: "Pull back" },
   { id: "truck", label: "Truck right" },
   { id: "orbit", label: "Orbit left" },
+  { id: "crane", label: "Crane up" },
+  { id: "arc", label: "Arc reveal" },
 ] as const;
 export type CameraMovePreset = (typeof CAMERA_MOVE_PRESETS)[number]["id"];
 
@@ -34,14 +36,20 @@ export function createCameraMove(
   for (let i = 0; i < 5; i++) {
     const progress = i / 4;
     const point = start.clone();
-    if (preset === "orbit") {
+    if (preset === "orbit" || preset === "arc") {
       point
         .sub(center)
         .applyAxisAngle(
           new Vector3(0, 1, 0),
-          (-progress * strength * Math.PI) / 3,
+          (-progress * strength * Math.PI) / (preset === "arc" ? 4 : 3),
         )
         .add(center);
+      // An arc reveal closes in on the subject while it circles.
+      if (preset === "arc")
+        point.lerp(center, progress * Math.min(0.5, strength * 0.8));
+    } else if (preset === "crane") {
+      point.y += progress * distance * strength * 0.8;
+      point.addScaledVector(forward, progress * distance * strength * 0.2);
     } else {
       point.addScaledVector(
         preset === "truck" ? right : forward,
@@ -50,7 +58,7 @@ export function createCameraMove(
     }
     if (!allowBelowFloor) point.y = Math.max(0, point.y);
     points.push(point.toArray());
-    if (preset === "orbit") {
+    if (preset === "orbit" || preset === "arc" || preset === "crane") {
       camera.position.copy(point);
       camera.lookAt(center);
       quaternions.push(camera.quaternion.toArray());

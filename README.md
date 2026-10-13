@@ -8,7 +8,7 @@ Based on the original camera-trajectory editor created by [Gowthami Somepalli (@
 
 This repository contains the complete React editor, Express server, camera math, job runner, and optional hosted-demo billing. The local version uses your own API key. Hosted mode adds Clerk phone verification and one-time Stripe credit packs; there is no Metronome dependency.
 
-![Draw and aim a camera path in the 3D editor](docs/editor-light.png)
+![Keyframe a camera move in the 3D editor](docs/editor-light.png)
 
 ## Example videos
 
@@ -30,9 +30,9 @@ The current app produces four-second videos at 12 FPS. These are output examples
 
 ## Explore without signing up
 
-Choose **Explore an example** to open a prepared igloo scene with an editable camera path. Move or delete cameras, aim them, smooth the path, and preview the move without an account or API key. The public image, EXR depth, and camera metadata are bundled in [`public/example/`](public/example/); no API task runs while you explore.
+Choose **Explore an example** to open a prepared igloo scene with an editable camera move. Pilot the camera, set and retime keys, and preview the move without an account or API key. The public image, EXR depth, and camera metadata are bundled in [`public/example/`](public/example/); no API task runs while you explore.
 
-On the hosted app, sign in and verify a phone number when you want to **Queue video** or prepare your own image. Your example edits stay in the tab through sign-in. Generating the example uses the same credits and limits as any other video. A local fork sends the bundled scene with your own API key; it does not depend on our private asset IDs.
+On the hosted app, sign in and verify a phone number when you want to **Generate video** or prepare your own image. Your example edits stay in the tab through sign-in. Generating the example uses the same credits and limits as any other video. A local fork sends the bundled scene with your own API key; it does not depend on our private asset IDs.
 
 ## Run locally
 
@@ -44,9 +44,9 @@ You need Node.js 22.12+ (Node 24 recommended), FFmpeg on your PATH, and an API-e
 4. Run `npm run build && npm start`.
 5. Open [localhost:3030](http://localhost:3030), upload a JPG, PNG or WebP, to prepare its 3D scene.
 
-The editor crops inputs to 16:9. Rotate the scene, draw a camera path on the map, adjust camera direction, and preview the move before choosing **Queue video**. Each video contains 48 frames at 12 FPS. MP4 encoding runs locally using FFmpeg.
+The editor crops inputs to 16:9. Set a few keyframes for the shot camera, preview the move, and choose **Generate video**. Each video contains 48 frames at 12 FPS. MP4 encoding runs locally using FFmpeg.
 
-Drag a camera or its numbered point in the 3D view to move it; drag empty space to rotate the scene. Use **Smooth path** to soften bends, and find **Look at point** below Yaw and Pitch. **Delete/Backspace** removes the selected camera. **Cmd/Ctrl-Z** undoes an edit; **Cmd/Ctrl-Shift-Z** redoes it. Each drag or drawn stroke is one undo step.
+**Cmd/Ctrl-Z** undoes an edit; **Cmd/Ctrl-Shift-Z** redoes it. Each drag, pilot move, or sketched route is one undo step.
 
 **Saved** contains drafts, generations, and favorites. Drafts are saved in this browser, separately for each signed-in account (up to 30 drafts), and need their source scene to remain available. Generated videos and scene data expire after seven days; download videos you want to keep.
 
@@ -54,17 +54,25 @@ For development, run `npm run dev` and `npx vite` in separate terminals. The Vit
 
 ## Camera planning controls
 
-The editor uses a compact white workspace with Path, Camera, and Video tabs in one collapsible sidebar. The 3D cloud and drawing map use colors sampled from the reference image, with sRGB colors converted to linear values for Three.js rendering.
+A shot is one camera with keyframes on a 4-second timeline, the way Blender animates a camera. The editor animates the camera between keys, and generation uses exactly what the timeline plays.
 
-Choose **Push in**, **Pull back**, **Truck right**, or **Orbit left** to replace the current path with five editable cameras. **Travel** controls the amount used by the next preset, relative to the subject distance. Presets start at the source camera; orbit cameras aim at the scene center. Undo restores your previous path.
+**Pilot the camera** (the camera button, or **C**) turns the viewport into the shot camera. **W A S D** move, **Q**/**E** move down and up, drag or use the arrow keys to look, and hold **Shift** for fine moves. **I** (or **Set key**) records the camera at the playhead; **Escape** finishes. With **Auto key** on, every move records a key where the playhead is, and dragging the orange camera in the overview does the same. With it off, a change waits as an unkeyed pose until you set a key, and scrubbing away discards it.
 
-Use the timeline to scrub, play, or pause. Playback appears in the bottom-right camera inset while the overview and editing controls remain usable. Click the inset to expand it; Escape restores its size. **Stop preview** returns the inset to the selected camera. Preview uses the same camera samples as generation and holds the final frame when playback finishes.
+A new scene starts with one key at the source camera. Jump to the end (**End**), pilot to where the shot should finish, and set a key; add a middle key anywhere for a curve. Drag diamonds on the timeline to retime keys, or type the time to the next key in seconds or frames on the Camera tab. **Even pace** spaces keys so the camera moves at a steady speed.
 
-Select a camera to open its properties. Drag the X/Y/Z labels to scrub position values, hold Shift for finer movement, or type a value and press Enter. Y stays above the floor unless **Allow below floor** is enabled. Selection darkens the model without enlarging it. Camera models keep a stable screen size as you zoom, and nearby number labels are spaced apart. The reference camera has a dashed outline and a separate Source label.
+Motion between keys is **Smooth** (curved, easing in at the first key and out at the last), **Linear**, or **Hold**. **Settle** sets how fully the camera slows at a key. Smooth motion follows Blender's auto-clamped handles, so the camera passes through every key without overshooting it. The speed track under the keys shows where the camera speeds up, and the dots along the 3D path mark each frame.
 
-The Video tab contains the FOV and prompt. Playback and generation controls share a compact bottom row, and the path map scales to the available height. [See the compact layout](docs/editor-scaled.png).
+**Aim** is **Free** (each key keeps its own pan and tilt), **Look at** (every frame faces one point you pick in the scene), or **Ahead** (faces the direction of travel). The field of view applies to the whole shot.
 
-The editor opens at an isometric angle on a white grid, with finer 1-unit lines and stronger 5-unit lines. Navigate the scene with the vertical X/Y/Z toolbar on the right, WASD to move horizontally, and Q/E to move down/up. Drag to orbit; right-drag or Shift-drag to pan. Movement stops immediately on release. **Reset view** (or R while the viewer is focused) returns to the default view. These controls move the editor viewpoint, not the cameras in your shot.
+The **Path** tab shows a top-down plan with the scene's colors, the path colored by time, the keys with their times, and the camera's view at the playhead. Drag keys on the plan, switch to **Height** to raise or lower them, or sketch a new route that becomes evenly timed keys. **Push in**, **Pull back**, **Truck**, **Orbit**, **Crane up**, and **Arc reveal** replace the shot with three keys that start at the source camera; **Travel** sets how far they move. Undo restores your previous shot.
+
+The camera monitor in the corner always shows the view at the playhead, including during playback. Click its corner button to enlarge it.
+
+Drafts saved before keyframes open with their cameras converted to keys at the same moments in the move.
+
+The editor follows your device's light or dark setting; the header button switches between device, light, and dark. On phones, the timeline sits under the viewport and the tools open in a sheet below, with on-screen move buttons while piloting.
+
+Navigate the overview with the mouse (drag to orbit; right-drag or Shift-drag to pan) or **W A S D** and **Q**/**E**. **R** frames the scene and path. These controls move your view of the scene, not the shot camera.
 
 The preview connects adjacent depth samples into textured surfaces to fill the gaps between points when viewing at an angle. It skips unsupported depth jumps and reconnects grazing surfaces when local inverse-depth samples establish a plane. Isolated missing samples can be repaired from measured planar neighbors; larger gaps remain open. Geometry hidden by the source image remains unobserved.
 

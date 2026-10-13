@@ -1,92 +1,63 @@
 import { EXAMPLE_DEPTH, EXAMPLE_IMAGE, EXAMPLE_HANDOFF } from "../example";
-import {
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { scrubNumber } from "./numeric-scrub";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Camera,
-  Crosshair,
-  Route,
-  SlidersHorizontal,
-  ChevronLeft,
-  ChevronRight,
-  Maximize2,
-  Minimize2,
   ChevronDown,
   Copy,
   Download,
-  ExternalLink,
+  Film,
   FolderOpen,
   History as HistoryIcon,
   House,
   Loader2,
-  Pause,
+  Maximize2,
+  Minimize2,
   Play,
-  Plus,
-  Rotate3D,
-  Undo2,
   Redo2,
-  Save,
-  Send,
+  Route,
   Sparkles,
-  Stamp,
   Star,
   Trash2,
+  Undo2,
   Upload,
   X,
 } from "lucide-react";
 import { verticalFov, type PinholeCamera } from "./common";
 import * as THREE from "three";
 import {
-  CameraPointCloudView,
-  CameraPlaybackView,
   CameraTrajectoryCanvas,
+  ShotCameraView,
+  type PilotPose,
 } from "./Canvas";
 import {
-  appendDrawnTrajectory,
-  buildTargetCameras,
-  cameraAimDegrees,
-  cameraDrawingView,
-  cameraQuaternionFromAim,
-  cameraTargetIsClearOfPath,
-  cameraViewsFromSegments,
-  deleteTrajectoryPivot,
-  frameTrajectorySpaceAboveFloor,
-  insertTrajectoryPivot,
+  cameraPathTarget,
+  cameraViewLookingAt,
   materializeTrajectorySmoothing,
-  smoothTrajectorySegments,
-  moveTrajectoryPoint,
-  normalizeClosedTrajectorySegments,
-  partLookAtTargetIsClearOfPath,
-  projectTrajectoryPoint,
-  reshapeTrajectorySegments,
-  sampleCameraPivot,
-  setTrajectoryPointDirectionOverride,
-  setTrajectoryPointQuaternion,
   TRAJECTORY_FLOOR_Y,
-  TRAJECTORY_SMOOTHING_VERSION,
-  trajectoryPathFromSegments,
-  trajectoryPivotsFromSegments,
-  trajectoryFloorBoundary,
-  type CameraDirectionMode,
   type CameraView,
-  type DrawPoint,
-  type TrajectoryDrawingView,
   type TrajectoryPoint,
-  type TrajectoryPivot,
-  type TrajectoryQuaternion,
-  type TrajectorySegment,
-  type TrajectoryShape,
   type TrajectorySpace,
 } from "./camera-trajectory";
+import {
+  buildShotTargetCameras,
+  createShotCurve,
+  isCameraKeyframe,
+  keyframeAt,
+  keyframesFromLegacySegments,
+  keyframesFromPoses,
+  poseFromView,
+  retimeKeyframe,
+  setKeyframeGap,
+  shotHasMotion,
+  sortKeyframes,
+  spaceKeyframesEvenly,
+  upsertKeyframe,
+  type CameraAimMode,
+  type CameraKeyframe,
+} from "./keyframes";
 import {
   blobToDataUrl,
   cameraTrajectoryVideoUrl,
@@ -104,32 +75,31 @@ import {
   type CameraTrajectoryDraftSummary,
   type CameraTrajectoryHistoryItem,
   type CameraTrajectoryHistoryVariant,
+  type SaveCameraTrajectoryDraft,
 } from "./api";
 import { authFetch, type GetToken } from "./client";
 import { useEditHistory } from "./use-edit-history";
 import { loadDepthPointCloud, loadExamplePose } from "./pose";
 import { fileToPoseBlob, posePointClouds, type PosedView } from "./pose";
-
+import { createCameraMove, type CameraMovePreset } from "./presets";
 import {
-  CAMERA_MOVE_PRESETS,
-  createCameraMove,
-  type CameraMovePreset,
-} from "./presets";
+  createPlayhead,
+  usePlayheadFrame,
+  usePlayheadPlaying,
+  type Playhead,
+} from "./playhead";
+import { formatTime, Timeline, type TimeUnit } from "./Timeline";
+import { PlanMap } from "./PlanMap";
+import { CameraPanel, PathPanel, VideoPanel } from "./ShotPanels";
+import { useStudioTheme } from "../theme";
 
 const DEFAULT_FRAME_COUNT = 48;
 const DEFAULT_FPS = 12;
 const DEFAULT_SEED_COUNT = 1;
 const DEFAULT_CFG = 2.5;
 const DEFAULT_FREEZE_TIME = true;
-const DEFAULT_DIRECTION_MODE: CameraDirectionMode = "manual";
-const MIN_FRAME_COUNT = 2;
-const MAX_FRAME_COUNT = 48;
-const MIN_FPS = 1;
-const MAX_FPS = 60;
 const MIN_SEED_COUNT = 1;
 const MAX_SEED_COUNT = 16;
-const MIN_CFG = 0;
-const MAX_CFG = 15;
 const MIN_TARGET_FOV_DEGREES = 5;
 const MAX_TARGET_FOV_DEGREES = 140;
 const DEFAULT_ASPECT_RATIO: CameraTrajectoryAspectRatio = "16:9";
@@ -142,55 +112,6 @@ const TARGET_FORMATS: Record<
   "9:16": { width: 400, height: 720 },
 };
 const FIRST_GENERATION_SEED = 42;
-const MAX_DEPTH_ANCHORS = 16;
-const CAMERA_DIRECTION_PRESETS: readonly {
-  mode: CameraDirectionMode;
-  label: string;
-  title: string;
-}[] = [
-  {
-    mode: "manual",
-    label: "Manual",
-    title: "Use the camera directions you set below",
-  },
-  {
-    mode: "forward",
-    label: "Forward",
-    title: "Face along the camera path",
-  },
-  {
-    mode: "look_at",
-    label: "Look at point",
-    title: "Point every camera at one spot you choose in the scene",
-  },
-  {
-    mode: "look_away",
-    label: "Look away",
-    title: "Point every camera away from one spot you choose in the scene",
-  },
-];
-
-type PointDirectionMode = "look_at" | "look_away";
-
-function isPointDirectionMode(
-  mode: CameraDirectionMode,
-): mode is PointDirectionMode {
-  return mode === "look_at" || mode === "look_away";
-}
-
-function restoredDirectionMode(
-  mode: CameraDirectionMode | undefined,
-): CameraDirectionMode {
-  if (mode === "inward") return "look_at";
-  if (mode === "outward") return "look_away";
-  return mode ?? DEFAULT_DIRECTION_MODE;
-}
-
-type SelectedPivot = {
-  segmentId: string;
-  pointIndex: number;
-  pivotNumber: number;
-};
 
 export function mergeHistoryItems(
   optimistic: readonly CameraTrajectoryHistoryItem[],
@@ -372,6 +293,9 @@ export function cameraTrajectoryDownloadName({
   return `${sceneName}--iteration-${iterationId}--seed-${seed ?? "unknown"}--job-${jobId}--${aspectName}--${frameCount}frames-${fps}fps.mp4`;
 }
 
+
+type SidebarTab = "path" | "camera" | "video";
+
 export function CameraTrajectoryPage({
   toolbarContainer,
   getToken,
@@ -389,52 +313,35 @@ export function CameraTrajectoryPage({
   const poseAbort = useRef<AbortController | null>(null);
   const previewUrlRef = useRef<string | null>(null);
   const pastedImageLoader = useRef<(file: File) => void>(() => undefined);
+  const { theme } = useStudioTheme();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [poseBlob, setPoseBlob] = useState<Blob | null>(null);
   const [pose, setPose] = useState<PosedView | null>(null);
   const [poseElapsed, setPoseElapsed] = useState(0);
   const [posing, setPosing] = useState(false);
-  const [segments, setSegments] = useState<TrajectorySegment[]>([]);
-  const [trajectorySmoothingVersion, setTrajectorySmoothingVersion] =
-    useState(0);
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
-    null,
-  );
-  const [selectedPivot, setSelectedPivot] = useState<SelectedPivot | null>(
-    null,
-  );
-  const [drawingView, setDrawingView] = useState<TrajectoryDrawingView | null>(
-    null,
-  );
+  const [keyframes, setKeyframes] = useState<CameraKeyframe[]>([]);
+  const [aimMode, setAimMode] = useState<CameraAimMode>("free");
+  const [aimTarget, setAimTarget] = useState<TrajectoryPoint | null>(null);
+  const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
+  const [pendingPose, setPendingPose] = useState<PilotPose | null>(null);
+  const [piloting, setPiloting] = useState(false);
+  const [autoKey, setAutoKey] = useState(true);
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>("seconds");
+  const [previewFill, setPreviewFill] = useState(true);
+  const [placingTarget, setPlacingTarget] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [frameCount, setFrameCount] = useState(DEFAULT_FRAME_COUNT);
   const [fps, setFps] = useState(DEFAULT_FPS);
   const [seedCount, setSeedCount] = useState(DEFAULT_SEED_COUNT);
   const [cfg, setCfg] = useState(DEFAULT_CFG);
   const [freezeTime, setFreezeTime] = useState(DEFAULT_FREEZE_TIME);
-  const [directionMode, setDirectionMode] = useState<CameraDirectionMode>(
-    DEFAULT_DIRECTION_MODE,
-  );
-  const [directionTarget, setDirectionTarget] =
-    useState<TrajectoryPoint | null>(null);
-  const [placingDirectionTarget, setPlacingDirectionTarget] = useState(false);
-  const [pendingDirectionMode, setPendingDirectionMode] =
-    useState<PointDirectionMode | null>(null);
-  const [placingLookAtSegmentId, setPlacingLookAtSegmentId] = useState<
-    string | null
-  >(null);
-  const [closedLoop, setClosedLoop] = useState(false);
   const [allowBelowFloor, setAllowBelowFloor] = useState(false);
   const [targetFovDegrees, setTargetFovDegrees] = useState(50);
   const [aspectRatio, setAspectRatio] =
     useState<CameraTrajectoryAspectRatio>(DEFAULT_ASPECT_RATIO);
-  const [previewing, setPreviewing] = useState(false);
-  const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [moveAmount, setMoveAmount] = useState(0.25);
-  const playingCamera = previewing || previewProgress !== null;
-  const [cameraViewExpanded, setCameraViewExpanded] = useState(false);
-  const [addingPivot, setAddingPivot] = useState(false);
+  const [monitorExpanded, setMonitorExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [restoringDraftId, setRestoringDraftId] = useState<string | null>(null);
@@ -447,16 +354,18 @@ export function CameraTrajectoryPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState<"path" | "camera" | "video">(
-    "path",
-  );
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("camera");
   const [error, setError] = useState<string | null>(null);
+  const [playhead] = useState(() =>
+    createPlayhead(DEFAULT_FRAME_COUNT - 1, DEFAULT_FPS),
+  );
   const targetFormat = TARGET_FORMATS[aspectRatio];
-  const effectiveDirectionTarget = isPointDirectionMode(directionMode)
-    ? (directionTarget ?? pose?.centroidWorld)
-    : pose?.centroidWorld;
-  const path = useMemo(() => trajectoryPathFromSegments(segments), [segments]);
+  const fovRadians = THREE.MathUtils.degToRad(targetFovDegrees);
+  const lastFrame = frameCount - 1;
+
+  useEffect(() => playhead.configure(frameCount - 1, fps), [fps, frameCount, playhead]);
+  useEffect(() => () => playhead.pause(), [playhead]);
+
   const history = useQuery({
     queryKey: ["camera-trajectory-history", getToken.storageScope],
     queryFn: () => getCameraTrajectoryHistory(getToken),
@@ -480,6 +389,9 @@ export function CameraTrajectoryPage({
       merged,
     );
   }, [history.data?.items, optimisticQueue, removedGenerationIds]);
+  const pendingGenerations = queueItems.filter((item) =>
+    item.variants.some((variant) => variant.video_uri === null),
+  ).length;
 
   useEffect(
     () => () => {
@@ -488,6 +400,56 @@ export function CameraTrajectoryPage({
     },
     [],
   );
+
+  const referenceView = useMemo<CameraView | null>(
+    () =>
+      pose
+        ? {
+            id: "reference",
+            position: pose.camera.extrinsics.position,
+            quaternion: pose.camera.extrinsics.quaternion,
+            fovRadians: verticalFov(pose.camera.intrinsics),
+          }
+        : null,
+    [pose],
+  );
+  const sceneTarget = useMemo(
+    () =>
+      referenceView && pose
+        ? cameraPathTarget(referenceView, pose.centroidWorld)
+        : null,
+    [pose, referenceView],
+  );
+  const trajectoryMap = useMemo(
+    () => (pose ? buildTrajectoryMap(pose) : null),
+    [pose],
+  );
+  const effectiveAimTarget =
+    aimMode === "look_at" ? (aimTarget ?? pose?.centroidWorld ?? null) : null;
+  const curve = useMemo(
+    () =>
+      createShotCurve(keyframes, {
+        aimMode,
+        aimTarget: effectiveAimTarget,
+        allowBelowFloor,
+      }),
+    [aimMode, allowBelowFloor, effectiveAimTarget, keyframes],
+  );
+  const sortedKeys = curve.keyframes;
+  const hasMotion = shotHasMotion(sortedKeys);
+
+  function sourcePose(): PilotPose | null {
+    if (!referenceView) return null;
+    return poseFromView(referenceView);
+  }
+
+  function resetShotState() {
+    playhead.pause();
+    playhead.setFrame(0);
+    setPendingPose(null);
+    setPiloting(false);
+    setPlacingTarget(false);
+  }
 
   async function loadImage(
     file: File,
@@ -521,27 +483,18 @@ export function CameraTrajectoryPage({
     setFileName(file.name);
     setPoseBlob(null);
     setPose(null);
-    setSegments([]);
-    setTrajectorySmoothingVersion(0);
-    setSelectedSegmentId(null);
-    setSelectedPivot(null);
-    setAddingPivot(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setDrawingView(null);
+    setKeyframes([]);
+    setSelectedKeyId(null);
+    resetShotState();
     setPrompt(restoredDraft?.prompt ?? "");
-    setDirectionMode(restoredDirectionMode(restoredDraft?.direction_mode));
-    setDirectionTarget(null);
-    setPlacingDirectionTarget(false);
-    setPendingDirectionMode(null);
-    setPlacingLookAtSegmentId(null);
-    setClosedLoop(restoredDraft?.closed_loop ?? false);
+    setAimMode("free");
+    setAimTarget(null);
     setAllowBelowFloor(
       restoredDraft?.allow_below_floor === true ||
-        (restoredDraft?.segments.some((segment) =>
+        (restoredDraft?.keyframes ?? []).some((key) => key.position[1] < 0) ||
+        (restoredDraft?.segments ?? []).some((segment) =>
           segment.points.some((point) => point[1] < TRAJECTORY_FLOOR_Y),
-        ) ??
-          false),
+        ),
     );
     setError(null);
     setNotice(null);
@@ -584,17 +537,6 @@ export function CameraTrajectoryPage({
       if (!nextPose) throw new Error("No scene was returned");
       if (controller.signal.aborted) return;
 
-      setPose(nextPose);
-      setPoseBlob(blob);
-      setDirectionTarget(
-        restoredDraft?.direction_target ??
-          (restoredDraft?.direction_mode === "inward" ||
-          restoredDraft?.direction_mode === "outward" ||
-          restoredDraft?.direction_mode === "look_at" ||
-          restoredDraft?.direction_mode === "look_away"
-            ? nextPose.centroidWorld
-            : null),
-      );
       const restoredTargetFov =
         restoredDraft?.target_fov_degrees ??
         (restoredDraft?.target_cameras[0]
@@ -602,70 +544,99 @@ export function CameraTrajectoryPage({
               verticalFov(restoredDraft.target_cameras[0].intrinsics),
             )
           : THREE.MathUtils.radToDeg(verticalFov(nextPose.camera.intrinsics)));
-      setTargetFovDegrees(
-        THREE.MathUtils.clamp(
-          Math.round(restoredTargetFov),
-          MIN_TARGET_FOV_DEGREES,
-          MAX_TARGET_FOV_DEGREES,
-        ),
+      const nextFov = THREE.MathUtils.clamp(
+        Math.round(restoredTargetFov),
+        MIN_TARGET_FOV_DEGREES,
+        MAX_TARGET_FOV_DEGREES,
       );
+      const reference: CameraView = {
+        id: "reference",
+        position: nextPose.camera.extrinsics.position,
+        quaternion: nextPose.camera.extrinsics.quaternion,
+        fovRadians: THREE.MathUtils.degToRad(nextFov),
+      };
+      let nextKeys: CameraKeyframe[] = keyframesFromPoses(
+        [poseFromView(reference)],
+        DEFAULT_FRAME_COUNT,
+      );
+      let nextAim: CameraAimMode = "free";
+      let nextTarget: TrajectoryPoint | null = null;
+      let restoredNotice: string | null = null;
+
       if (isExample && !restoredDraft) {
-        const [x, y, z] = nextPose.camera.extrinsics.position;
-        const id = "example-path";
-        setSegments([
-          {
-            id,
-            points: [
-              [x, y, z],
-              [x + 0.35, y, z - 0.2],
-              [x + 0.75, y + 0.05, z - 0.45],
-            ],
-          },
-        ]);
-        setTrajectorySmoothingVersion(TRAJECTORY_SMOOTHING_VERSION);
-        setSelectedSegmentId(id);
-        setDirectionMode("look_at");
-        setDirectionTarget(nextPose.centroidWorld);
+        // A gentle arc around the igloo shows off moving well off-axis.
+        const center = cameraPathTarget(reference, nextPose.centroidWorld);
+        const move = createCameraMove("arc", reference, center, 0.45, false);
+        nextKeys = keyframesFromPoses(
+          [0, 2, 4].map((index) =>
+            poseFromView(
+              cameraViewLookingAt("key", move.points[index]!, center, 1),
+            ),
+          ),
+          DEFAULT_FRAME_COUNT,
+        );
+        nextAim = "look_at";
+        nextTarget = center;
         setPrompt(
           "A smooth cinematic camera move around the cozy igloo. Preserve the scene and its lighting.",
         );
       }
       if (restoredDraft) {
-        const restoredSmoothingVersion =
-          restoredDraft.trajectory_smoothing_version ?? 0;
-        const restoredTrajectory = materializeTrajectorySmoothing(
-          restoredDraft.segments,
-          restoredSmoothingVersion,
-        );
-        const segmentsWereSmoothed =
-          restoredSmoothingVersion >= TRAJECTORY_SMOOTHING_VERSION;
-        const restoredSegments = restoredTrajectory.segments;
-        setSegments(restoredSegments);
-        setTrajectorySmoothingVersion(restoredTrajectory.version);
-        const lastSegment = restoredSegments.at(-1);
-        setSelectedSegmentId(lastSegment?.id ?? null);
-        setSelectedPivot(
-          lastSegment
-            ? {
-                segmentId: lastSegment.id,
-                pointIndex: lastSegment.points.length - 1,
-                pivotNumber:
-                  trajectoryPathFromSegments(restoredSegments).length,
-              }
-            : null,
-        );
+        const savedKeys = restoredDraft.keyframes?.filter(isCameraKeyframe);
+        if (savedKeys && savedKeys.length > 0) {
+          nextKeys = sortKeyframes(savedKeys);
+          nextAim = restoredDraft.aim_mode ?? "free";
+          nextTarget = restoredDraft.aim_target ?? null;
+          restoredNotice = "Draft reopened.";
+        } else if (restoredDraft.segments?.length) {
+          const legacyMode = restoredDraft.direction_mode;
+          const legacyTarget =
+            restoredDraft.direction_target ??
+            (legacyMode && legacyMode !== "manual" && legacyMode !== "forward"
+              ? nextPose.centroidWorld
+              : null);
+          const converted = keyframesFromLegacySegments(
+            materializeTrajectorySmoothing(
+              restoredDraft.segments,
+              restoredDraft.trajectory_smoothing_version ?? 0,
+            ).segments,
+            reference,
+            DEFAULT_FRAME_COUNT,
+            {
+              directionMode:
+                legacyMode === "inward"
+                  ? "look_at"
+                  : legacyMode === "outward"
+                    ? "look_away"
+                    : (legacyMode ?? "manual"),
+              directionTarget: legacyTarget,
+              closedLoop: restoredDraft.closed_loop ?? false,
+              allowBelowFloor: restoredDraft.allow_below_floor ?? false,
+            },
+          );
+          if (converted.keyframes.length) nextKeys = converted.keyframes;
+          nextAim = converted.aimMode;
+          nextTarget = converted.aimMode === "look_at" ? legacyTarget : null;
+          restoredNotice =
+            "Draft reopened. Its cameras are now keys on the timeline.";
+        }
         setFrameCount(DEFAULT_FRAME_COUNT);
         setFps(DEFAULT_FPS);
         setSeedCount(DEFAULT_SEED_COUNT);
         setCfg(restoredDraft.cfg ?? DEFAULT_CFG);
         setFreezeTime(restoredDraft.freeze_time ?? DEFAULT_FREEZE_TIME);
         setAspectRatio(restoredDraft.aspect_ratio);
-        setNotice(
-          segmentsWereSmoothed
-            ? "Draft reopened."
-            : `Draft ${restoredDraft.draft_id} reopened with its hand-drawn path smoothed.`,
-        );
       }
+
+      setPose(nextPose);
+      setPoseBlob(blob);
+      setTargetFovDegrees(nextFov);
+      setKeyframes(nextKeys);
+      setAimMode(nextAim);
+      setAimTarget(nextTarget);
+      setSelectedKeyId(nextKeys[0]?.id ?? null);
+      setSidebarTab(nextKeys.length < 2 ? "camera" : "path");
+      setNotice(restoredNotice);
     } catch (caught) {
       if (controller.signal.aborted) return;
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -690,7 +661,10 @@ export function CameraTrajectoryPage({
       const saved = JSON.parse(
         sessionStorage.getItem(EXAMPLE_HANDOFF) || "null",
       );
-      if (saved?.depth_uri === EXAMPLE_DEPTH && Array.isArray(saved.segments))
+      if (
+        saved?.depth_uri === EXAMPLE_DEPTH &&
+        (Array.isArray(saved.keyframes) || Array.isArray(saved.segments))
+      )
         draft = saved;
     } catch {}
     if (
@@ -723,7 +697,9 @@ export function CameraTrajectoryPage({
           centroid_world: pose.centroidWorld,
           reference_camera: pose.camera,
           reference_image_base64: pose.imageUrl,
-          segments,
+          keyframes,
+          aim_mode: aimMode,
+          aim_target: aimTarget,
           target_cameras: [],
           prompt,
           frame_count: frameCount,
@@ -733,12 +709,8 @@ export function CameraTrajectoryPage({
           freeze_time: freezeTime,
           target_fov_degrees: targetFovDegrees,
           aspect_ratio: aspectRatio,
-          direction_mode: directionMode,
-          direction_target: directionTarget,
-          closed_loop: closedLoop,
           allow_below_floor: allowBelowFloor,
-          trajectory_smoothing_version: trajectorySmoothingVersion,
-        }),
+        } satisfies CameraTrajectoryDraftDetails),
       );
     } catch {
       /* Storage can be unavailable; the editor still works. */
@@ -747,7 +719,9 @@ export function CameraTrajectoryPage({
     canViewHistory,
     pose,
     posing,
-    segments,
+    keyframes,
+    aimMode,
+    aimTarget,
     prompt,
     frameCount,
     fps,
@@ -756,11 +730,7 @@ export function CameraTrajectoryPage({
     freezeTime,
     targetFovDegrees,
     aspectRatio,
-    directionMode,
-    directionTarget,
-    closedLoop,
     allowBelowFloor,
-    trajectorySmoothingVersion,
   ]);
 
   pastedImageLoader.current = (file) => void loadImage(file);
@@ -783,134 +753,110 @@ export function CameraTrajectoryPage({
     return () => window.removeEventListener("paste", pasteImage);
   }, []);
 
-  function chooseNewImage() {
-    fileInput.current?.click();
-  }
-
   function goHome() {
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setAddingPivot(false);
+    playhead.pause();
+    setPiloting(false);
     setHistoryOpen(false);
     setHomeOpen(true);
+  }
+
+  /** Target cameras for generation, or an explanation of what is missing. */
+  function shotCameras(): PinholeCamera[] {
+    if (sortedKeys.length < 2 || !hasMotion)
+      throw new Error("Set at least two different keys before generating.");
+    if (effectiveAimTarget) {
+      const clearance = Math.max(
+        0.02,
+        (trajectoryMap?.space.radius ?? 1) * 0.015,
+      );
+      for (let frame = 0; frame < frameCount; frame++) {
+        const [x, y, z] = curve.positionAt(frame);
+        if (
+          Math.hypot(
+            x - effectiveAimTarget[0],
+            y - effectiveAimTarget[1],
+            z - effectiveAimTarget[2],
+          ) < clearance
+        )
+          throw new Error(
+            "The camera passes through its look target. Move the target or the path before generating.",
+          );
+      }
+    }
+    return buildShotTargetCameras(
+      curve,
+      frameCount,
+      targetFormat.width,
+      targetFormat.height,
+      fovRadians,
+    );
+  }
+
+  function draftInput(referenceImage: {
+    image_base64: string;
+    camera: PinholeCamera;
+  }, targetCameras: PinholeCamera[], trimmedPrompt: string): SaveCameraTrajectoryDraft {
+    return {
+      file_name: fileName || "reference-image.png",
+      depth_uri: pose!.depthUri,
+      centroid_world: pose!.centroidWorld,
+      reference_image: referenceImage,
+      keyframes: [...sortedKeys],
+      aim_mode: aimMode,
+      aim_target: aimMode === "look_at" ? effectiveAimTarget : null,
+      target_cameras: targetCameras,
+      prompt: trimmedPrompt,
+      frame_count: frameCount,
+      fps,
+      seed_count: seedCount,
+      cfg,
+      freeze_time: freezeTime,
+      target_fov_degrees: targetFovDegrees,
+      aspect_ratio: aspectRatio,
+      allow_below_floor: allowBelowFloor,
+    };
+  }
+
+  function contextCamera(): PinholeCamera {
+    return {
+      intrinsics: pose!.camera.intrinsics,
+      extrinsics: {
+        ...pose!.camera.extrinsics,
+        coordinateSystem: "rub",
+      },
+    };
   }
 
   async function generate() {
     if (!beforeGenerate()) return;
     if (!PORTRAIT_GENERATION_ENABLED && aspectRatio === "9:16") {
       setError(
-        "9:16 generation is temporarily unavailable. Switch Aspect to 16:9.",
+        "9:16 generation is temporarily unavailable. Switch to 16:9.",
       );
       return;
     }
-    if (
-      !pose ||
-      !poseBlob ||
-      !prompt.trim() ||
-      views.length < 2 ||
-      frameCount < requiredFrameCount ||
-      submitting ||
-      savingDraft
-    ) {
+    if (!pose || !poseBlob || !prompt.trim() || submitting || savingDraft)
       return;
-    }
-    setAddingPivot(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
+    playhead.pause();
+    setPiloting(false);
     setSubmitting(true);
     setError(null);
     setNotice(null);
     let savedDraftId: string | null = null;
 
     try {
-      const generationSegments = materializeSmoothedTrajectory();
-      const generationViews = targetReferenceView
-        ? cameraViewsFromSegments(
-            generationSegments,
-            targetReferenceView,
-            allowBelowFloor,
-          )
-        : [];
-      if (
-        isPointDirectionMode(directionMode) &&
-        effectiveDirectionTarget &&
-        !cameraTargetIsClearOfPath(
-          generationViews,
-          effectiveDirectionTarget,
-          closedLoop,
-          Math.max(0.02, (trajectoryMap?.space.radius ?? 1) * 0.015),
-          undefined,
-          allowBelowFloor,
-        )
-      ) {
-        throw new Error(
-          "The camera path passes through the look target. Move the target away from the blue path before generating.",
-        );
-      }
-      for (const target of partLookAtTargets) {
-        if (
-          !partLookAtTargetIsClearOfPath(
-            generationViews,
-            target,
-            closedLoop,
-            Math.max(0.02, (trajectoryMap?.space.radius ?? 1) * 0.015),
-            allowBelowFloor,
-          )
-        ) {
-          throw new Error(
-            "A camera part passes through its look target. Move that target away from the blue path before generating.",
-          );
-        }
-      }
-      const targetCameras = buildTargetCameras(
-        generationViews,
-        frameCount,
-        targetFormat.width,
-        targetFormat.height,
-        {
-          directionMode,
-          directionTarget: effectiveDirectionTarget,
-          closedLoop,
-          allowBelowFloor,
-        },
-      );
-      const contextCamera: PinholeCamera = {
-        intrinsics: pose.camera.intrinsics,
-        extrinsics: {
-          ...pose.camera.extrinsics,
-          coordinateSystem: "rub",
-        },
-      };
+      const targetCameras = shotCameras();
       const referenceImage = {
         image_base64: await blobToDataUrl(poseBlob),
-        camera: contextCamera,
+        camera: contextCamera(),
       };
       const submittedAt = Date.now() / 1000;
       const submittedPrompt = prompt.trim();
       const seeds = generationSeeds(seedCount);
-      const savedDraft = await saveCameraTrajectoryDraft(getToken, {
-        file_name: fileName || "reference-image.png",
-        depth_uri: pose.depthUri,
-        centroid_world: pose.centroidWorld,
-        reference_image: referenceImage,
-        segments: generationSegments,
-        target_cameras: targetCameras,
-        prompt: submittedPrompt,
-        frame_count: frameCount,
-        fps,
-        seed_count: seedCount,
-        cfg,
-        freeze_time: freezeTime,
-        target_fov_degrees: targetFovDegrees,
-        aspect_ratio: aspectRatio,
-        direction_mode: directionMode,
-        direction_target: isPointDirectionMode(directionMode)
-          ? (effectiveDirectionTarget ?? null)
-          : null,
-        closed_loop: closedLoop,
-        allow_below_floor: allowBelowFloor,
-        trajectory_smoothing_version: TRAJECTORY_SMOOTHING_VERSION,
-      });
+      const savedDraft = await saveCameraTrajectoryDraft(
+        getToken,
+        draftInput(referenceImage, targetCameras, submittedPrompt),
+      );
       savedDraftId = savedDraft.draft_id;
       const results = await Promise.allSettled(
         seeds.map((seed) =>
@@ -987,68 +933,26 @@ export function CameraTrajectoryPage({
   }
 
   async function saveDraft() {
-    if (!pose || !poseBlob || !referenceView || savingDraft || submitting) {
+    if (!pose || !poseBlob || !referenceView || savingDraft || submitting)
       return;
-    }
     setSavingDraft(true);
     setError(null);
     setNotice(null);
     try {
-      const savedSegments = materializeSmoothedTrajectory();
-      const savedViews = targetReferenceView
-        ? cameraViewsFromSegments(
-            savedSegments,
-            targetReferenceView,
-            allowBelowFloor,
-          )
-        : [];
-      const contextCamera: PinholeCamera = {
-        intrinsics: pose.camera.intrinsics,
-        extrinsics: {
-          ...pose.camera.extrinsics,
-          coordinateSystem: "rub",
-        },
-      };
-      const saved = await saveCameraTrajectoryDraft(getToken, {
-        file_name: fileName || "reference-image.png",
-        depth_uri: pose.depthUri,
-        centroid_world: pose.centroidWorld,
-        reference_image: {
-          image_base64: await blobToDataUrl(poseBlob),
-          camera: contextCamera,
-        },
-        segments: savedSegments,
-        target_cameras:
-          savedViews.length >= 2 && frameCount >= requiredFrameCount
-            ? buildTargetCameras(
-                savedViews,
-                frameCount,
-                targetFormat.width,
-                targetFormat.height,
-                {
-                  directionMode,
-                  directionTarget: effectiveDirectionTarget,
-                  closedLoop,
-                  allowBelowFloor,
-                },
-              )
-            : [],
-        prompt: prompt.trim(),
-        frame_count: frameCount,
-        fps,
-        seed_count: seedCount,
-        cfg,
-        freeze_time: freezeTime,
-        target_fov_degrees: targetFovDegrees,
-        aspect_ratio: aspectRatio,
-        direction_mode: directionMode,
-        direction_target: isPointDirectionMode(directionMode)
-          ? (effectiveDirectionTarget ?? null)
-          : null,
-        closed_loop: closedLoop,
-        allow_below_floor: allowBelowFloor,
-        trajectory_smoothing_version: TRAJECTORY_SMOOTHING_VERSION,
-      });
+      let targetCameras: PinholeCamera[] = [];
+      try {
+        targetCameras = shotCameras();
+      } catch {
+        /* An unfinished shot still saves; it just has no cameras yet. */
+      }
+      const saved = await saveCameraTrajectoryDraft(
+        getToken,
+        draftInput(
+          { image_base64: await blobToDataUrl(poseBlob), camera: contextCamera() },
+          targetCameras,
+          prompt.trim(),
+        ),
+      );
       setNotice(`Draft ${saved.draft_id} saved without generation.`);
       setHistoryOpen(true);
     } catch (caught) {
@@ -1084,144 +988,243 @@ export function CameraTrajectoryPage({
     setRemovedGenerationIds((current) => new Set(current).add(jobId));
   }
 
-  const referenceView = useMemo<CameraView | null>(
-    () =>
-      pose
-        ? {
-            id: "reference",
-            position: pose.camera.extrinsics.position,
-            quaternion: pose.camera.extrinsics.quaternion,
-            fovRadians: verticalFov(pose.camera.intrinsics),
-          }
-        : null,
-    [pose],
-  );
-  const targetReferenceView = useMemo<CameraView | null>(
-    () =>
-      referenceView
-        ? {
-            ...referenceView,
-            fovRadians: THREE.MathUtils.degToRad(targetFovDegrees),
-          }
-        : null,
-    [referenceView, targetFovDegrees],
-  );
-  const trajectoryMap = useMemo(
-    () => (pose ? buildTrajectoryMap(pose) : null),
-    [pose],
-  );
-  const views = useMemo(
-    () =>
-      targetReferenceView
-        ? cameraViewsFromSegments(
-            segments,
-            targetReferenceView,
-            allowBelowFloor,
-          )
-        : [],
-    [allowBelowFloor, segments, targetReferenceView],
-  );
-  const requiredFrameCount =
-    views.length + (closedLoop && views.length >= 3 ? 1 : 0);
-  const minimumFrameCount = Math.min(
-    MAX_FRAME_COUNT,
-    Math.max(MIN_FRAME_COUNT, requiredFrameCount),
-  );
-  const cameraPivots = useMemo(
-    () => trajectoryPivotsFromSegments(segments),
-    [segments],
-  );
-  const selectedPartIndex = selectedSegmentId
-    ? segments.findIndex((segment) => segment.id === selectedSegmentId)
-    : -1;
-  const selectedPart =
-    selectedPartIndex >= 0 ? segments[selectedPartIndex]! : null;
-  const partLookAtTargets = useMemo(
-    () =>
-      segments.reduce<TrajectoryPoint[]>((targets, segment) => {
-        const target = segment.look_at_target;
-        if (
-          target &&
-          !targets.some(
-            (current) =>
-              new THREE.Vector3(...current).distanceTo(
-                new THREE.Vector3(...target),
-              ) <= 1e-5,
-          )
-        ) {
-          targets.push(target);
-        }
-        return targets;
-      }, []),
-    [segments],
-  );
-  const selectedCameraView = useMemo<CameraView | null>(() => {
-    if (!selectedPivot) return null;
-    const viewIndex = selectedPivot.pivotNumber - 1;
-    const view = views[viewIndex];
-    return view
-      ? {
-          id: view.id,
-          ...sampleCameraPivot(views, viewIndex, {
-            directionMode,
-            directionTarget: effectiveDirectionTarget,
-            closedLoop,
-            allowBelowFloor,
-          }),
-        }
-      : null;
-  }, [
-    allowBelowFloor,
-    closedLoop,
-    directionMode,
-    effectiveDirectionTarget,
-    selectedPivot,
-    views,
-  ]);
   const ready = pose && referenceView && trajectoryMap;
   const editSnapshot = useMemo(
     () => ({
-      segments,
-      trajectorySmoothingVersion,
-      directionMode,
-      directionTarget,
-      closedLoop,
+      keyframes,
+      aimMode,
+      aimTarget,
       allowBelowFloor,
       targetFovDegrees,
     }),
-    [
-      segments,
-      trajectorySmoothingVersion,
-      directionMode,
-      directionTarget,
-      closedLoop,
+    [keyframes, aimMode, aimTarget, allowBelowFloor, targetFovDegrees],
+  );
+  const edits = useEditHistory(editSnapshot, pose?.depthUri ?? null, (state) => {
+    setKeyframes(state.keyframes);
+    setAimMode(state.aimMode);
+    setAimTarget(state.aimTarget);
+    setAllowBelowFloor(state.allowBelowFloor);
+    setTargetFovDegrees(state.targetFovDegrees);
+    setPendingPose(null);
+    setPlacingTarget(false);
+    setError(null);
+    setNotice(null);
+  });
+
+  // An unkeyed change belongs to the frame it was made on.
+  const pendingFrame = useRef<number | null>(null);
+  useEffect(
+    () =>
+      playhead.subscribe(() => {
+        if (
+          pendingFrame.current !== null &&
+          Math.round(playhead.frame) !== pendingFrame.current
+        ) {
+          pendingFrame.current = null;
+          setPendingPose(null);
+        }
+      }),
+    [playhead],
+  );
+
+  function editKeys(next: CameraKeyframe[]) {
+    setKeyframes(next);
+    setPendingPose(null);
+    pendingFrame.current = null;
+    setError(null);
+  }
+
+  function keyPose(pose: PilotPose, select = true) {
+    const frame = Math.round(playhead.frame);
+    playhead.setFrame(frame);
+    const result = upsertKeyframe(keyframes, frame, pose);
+    editKeys(result.keyframes);
+    if (select) setSelectedKeyId(result.id);
+  }
+
+  /** A camera change at the playhead: key it, or hold it until Set key. */
+  function changePoseAtPlayhead(pose: PilotPose) {
+    const frame = Math.round(playhead.frame);
+    if (autoKey || (playhead.frame === frame && keyframeAt(keyframes, frame))) {
+      keyPose(pose);
+      return;
+    }
+    playhead.setFrame(frame);
+    pendingFrame.current = frame;
+    setPendingPose(pose);
+  }
+
+  function setKeyAtPlayhead() {
+    if (pendingPose) {
+      keyPose(pendingPose);
+      return;
+    }
+    const current = keyframes.length
+      ? curve.poseAt(playhead.frame)
+      : sourcePose();
+    if (!current) return;
+    keyPose({
+      position: [...current.position],
+      yaw: current.yaw,
+      pitch: current.pitch,
+    });
+  }
+
+  function toggleKeyAtPlayhead() {
+    const frame = Math.round(playhead.frame);
+    const existing =
+      playhead.frame === frame ? keyframeAt(keyframes, frame) : null;
+    if (existing && !pendingPose) deleteKey(existing.id);
+    else setKeyAtPlayhead();
+  }
+
+  function deleteKey(id: string) {
+    if (keyframes.length <= 1) return;
+    const next = keyframes.filter((key) => key.id !== id);
+    editKeys(next);
+    if (selectedKeyId === id) setSelectedKeyId(null);
+  }
+
+  function selectKey(id: string) {
+    const key = keyframes.find((candidate) => candidate.id === id);
+    if (!key) return;
+    playhead.pause();
+    playhead.setFrame(key.frame);
+    setSelectedKeyId(id);
+  }
+
+  function jumpKey(direction: -1 | 1) {
+    playhead.pause();
+    const frame = playhead.frame;
+    const target =
+      direction < 0
+        ? [...sortedKeys].reverse().find((key) => key.frame < frame - 0.01)
+        : sortedKeys.find((key) => key.frame > frame + 0.01);
+    if (target) {
+      playhead.setFrame(target.frame);
+      setSelectedKeyId(target.id);
+    }
+  }
+
+  function moveKey(id: string, position: TrajectoryPoint) {
+    editKeys(
+      keyframes.map((key) => (key.id === id ? { ...key, position } : key)),
+    );
+  }
+
+  function moveLiveCamera(position: TrajectoryPoint) {
+    const current = curve.poseAt(playhead.frame);
+    const frame = Math.round(playhead.frame);
+    if (!autoKey && !keyframeAt(keyframes, frame)) {
+      setNotice(
+        "Turn on Auto key to record a key by dragging, or pilot the camera and press Set key.",
+      );
+      return;
+    }
+    keyPose({ position, yaw: current.yaw, pitch: current.pitch });
+  }
+
+  function startPilot() {
+    if (!ready) return;
+    playhead.pause();
+    if (playhead.frame !== Math.round(playhead.frame))
+      playhead.setFrame(Math.round(playhead.frame));
+    if (keyframes.length === 0) {
+      const source = sourcePose();
+      if (source) editKeys(keyframesFromPoses([source], frameCount));
+    }
+    setPlacingTarget(false);
+    setMonitorExpanded(false);
+    setPiloting(true);
+    setNotice(null);
+  }
+
+  function applyPreset(preset: CameraMovePreset) {
+    if (!referenceView || !sceneTarget) return;
+    const move = createCameraMove(
+      preset,
+      { ...referenceView, fovRadians },
+      sceneTarget,
+      moveAmount,
       allowBelowFloor,
-      targetFovDegrees,
-    ],
-  );
-  const edits = useEditHistory(
-    editSnapshot,
-    pose?.depthUri ?? null,
-    (state) => {
-      setSegments(state.segments);
-      setTrajectorySmoothingVersion(state.trajectorySmoothingVersion);
-      setDirectionMode(state.directionMode);
-      setDirectionTarget(state.directionTarget);
-      setClosedLoop(state.closedLoop);
-      setAllowBelowFloor(state.allowBelowFloor);
-      setTargetFovDegrees(state.targetFovDegrees);
-      setSelectedPivot(null);
-      setSelectedSegmentId(null);
-      setPreviewing(false);
-      setPreviewProgress(null);
-      setAddingPivot(false);
-      setPlacingDirectionTarget(false);
-      setPlacingLookAtSegmentId(null);
-      setPendingDirectionMode(null);
-      setError(null);
-      setNotice(null);
-    },
-  );
+    );
+    const next = keyframesFromPoses(
+      [0, 2, 4].map((index) =>
+        poseFromView({
+          position: move.points[index]!,
+          quaternion: move.quaternions![index]!,
+        }),
+      ),
+      frameCount,
+    );
+    editKeys(next);
+    setAimMode("free");
+    setSelectedKeyId(next[0]!.id);
+    playhead.pause();
+    playhead.setFrame(0);
+    setNotice("Camera move applied. Press play, or pilot the camera to adjust a key.");
+  }
+
+  function applySketch(route: [number, number][]) {
+    if (!sceneTarget || route.length < 2) return;
+    const lengths = [0];
+    for (let i = 1; i < route.length; i++)
+      lengths.push(
+        lengths.at(-1)! +
+          Math.hypot(
+            route[i]![0] - route[i - 1]![0],
+            route[i]![1] - route[i - 1]![1],
+          ),
+      );
+    const total = lengths.at(-1)!;
+    if (total <= 1e-3) return;
+    const count = total > (trajectoryMap?.space.radius ?? 1) * 1.2 ? 4 : 3;
+    const height = sortedKeys[0]?.position[1] ?? referenceView!.position[1];
+    const poses = Array.from({ length: count }, (_, index) => {
+      const distance = (index / (count - 1)) * total;
+      let i = 1;
+      while (i < lengths.length - 1 && lengths[i]! < distance) i++;
+      const span = lengths[i]! - lengths[i - 1]! || 1;
+      const t = (distance - lengths[i - 1]!) / span;
+      const a = route[i - 1]!;
+      const b = route[i]!;
+      const position: TrajectoryPoint = [
+        a[0] + (b[0] - a[0]) * t,
+        height,
+        a[1] + (b[1] - a[1]) * t,
+      ];
+      return poseFromView(cameraViewLookingAt("key", position, sceneTarget, 1));
+    });
+    const next = spaceKeyframesEvenly(keyframesFromPoses(poses, frameCount), frameCount);
+    editKeys(next);
+    setSelectedKeyId(next[0]!.id);
+    setNotice("Route sketched into keys. Drag them to adjust.");
+  }
+
+  function resetShot() {
+    const source = sourcePose();
+    if (!source) return;
+    const next = keyframesFromPoses([source], frameCount);
+    editKeys(next);
+    setSelectedKeyId(next[0]!.id);
+    setAimMode("free");
+    playhead.pause();
+    playhead.setFrame(0);
+    setSidebarTab("camera");
+  }
+
+  function chooseAimMode(mode: CameraAimMode) {
+    if (mode === aimMode) return;
+    // Keep the shot looking the same by baking the current aim into the keys.
+    const baked = keyframes.map((key) => {
+      const aim = curve.poseAt(key.frame);
+      return { ...key, yaw: aim.yaw, pitch: aim.pitch };
+    });
+    editKeys(baked);
+    setAimMode(mode);
+    if (mode === "look_at" && !aimTarget && pose) setAimTarget(pose.centroidWorld);
+  }
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (
@@ -1233,14 +1236,15 @@ export function CameraTrajectoryPage({
         event.isComposing
       )
         return;
+      const target = event.target instanceof Element ? event.target : null;
       if (
-        event.target instanceof Element &&
-        event.target.closest(
+        target?.closest(
           'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"]',
         )
       )
         return;
       const key = event.key.toLowerCase();
+      const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
       if ((event.metaKey || event.ctrlKey) && key === "z") {
         event.preventDefault();
         if (event.shiftKey) edits.redo();
@@ -1248,526 +1252,63 @@ export function CameraTrajectoryPage({
       } else if (event.ctrlKey && key === "y") {
         event.preventDefault();
         edits.redo();
-      } else if (
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !previewing &&
-        !addingPivot &&
-        !placingDirectionTarget &&
-        selectedPivot &&
-        (key === "delete" || key === "backspace")
-      ) {
+      } else if (!plain) {
+        return;
+      } else if (key === " " && !target?.closest("button")) {
         event.preventDefault();
-        deletePathPivot(selectedPivot);
+        playhead.toggle();
+      } else if (key === "i" && !event.repeat) {
+        event.preventDefault();
+        setKeyAtPlayhead();
+      } else if (key === "escape") {
+        if (piloting) setPiloting(false);
+        else if (monitorExpanded) setMonitorExpanded(false);
+      } else if (key === "c" && !piloting && !placingTarget) {
+        startPilot();
+      } else if (piloting || placingTarget) {
+        return;
+      } else if ((key === "delete" || key === "backspace") && selectedKeyId) {
+        event.preventDefault();
+        deleteKey(selectedKeyId);
+      } else if (key === "arrowleft" || key === "arrowright") {
+        event.preventDefault();
+        playhead.pause();
+        const step = key === "arrowleft" ? -1 : 1;
+        playhead.setFrame(
+          event.shiftKey
+            ? step < 0
+              ? 0
+              : lastFrame
+            : Math.round(playhead.frame) + step,
+        );
+      } else if (key === "arrowup" || key === "arrowdown") {
+        event.preventDefault();
+        jumpKey(key === "arrowup" ? 1 : -1);
+      } else if (key === "home" || key === "end") {
+        event.preventDefault();
+        playhead.pause();
+        playhead.setFrame(key === "home" ? 0 : lastFrame);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  function smoothPath() {
-    setSegments(smoothTrajectorySegments(segments, closedLoop));
-    setTrajectorySmoothingVersion(TRAJECTORY_SMOOTHING_VERSION);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setAddingPivot(false);
-    setError(null);
-    setNotice("Path smoothed. Undo to restore it.");
-  }
-
-  function materializeSmoothedTrajectory(): TrajectorySegment[] {
-    const materialized = materializeTrajectorySmoothing(
-      segments,
-      trajectorySmoothingVersion,
-    );
-    if (materialized.version !== trajectorySmoothingVersion) {
-      setSegments(materialized.segments);
-      setTrajectorySmoothingVersion(materialized.version);
-    }
-    return materialized.segments;
-  }
-
-  useEffect(() => {
-    if (frameCount >= minimumFrameCount) return;
-    setFrameCount(minimumFrameCount);
-    setPreviewing(false);
-    setPreviewProgress(null);
-  }, [frameCount, minimumFrameCount]);
-
-  function updateDrawnSegments(nextSegments: TrajectorySegment[]) {
-    setSegments(nextSegments);
-    setClosedLoop(false);
-    setAddingPivot(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function completeDrawnSegments(nextSegments: TrajectorySegment[]) {
-    updateDrawnSegments(nextSegments);
-    const lastSegment = nextSegments.at(-1);
-    setSelectedSegmentId(lastSegment?.id ?? null);
-    setSelectedPivot(
-      lastSegment
-        ? {
-            segmentId: lastSegment.id,
-            pointIndex: lastSegment.points.length - 1,
-            pivotNumber: trajectoryPathFromSegments(nextSegments).length,
-          }
-        : null,
-    );
-  }
-
-  function movePathPoint(
-    segmentId: string,
-    pointIndex: number,
-    position: TrajectoryPoint,
-  ) {
-    setSegments((current) =>
-      moveTrajectoryPoint(current, segmentId, pointIndex, position),
-    );
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setSelectedSegmentId(segmentId);
-    setError(null);
-  }
-
-  function applyPathShape(
-    shape: TrajectoryShape,
-    scopeSegmentId: string | null,
-  ) {
-    const materialized = materializeTrajectorySmoothing(
-      segments,
-      trajectorySmoothingVersion,
-    );
-    const shaped = reshapeTrajectorySegments(
-      materialized.segments,
-      shape,
-      drawingView ?? cameraDrawingView(referenceView!.quaternion),
-      scopeSegmentId,
-      closedLoop,
-      allowBelowFloor,
-    );
-    if (!shaped) {
-      setError(
-        allowBelowFloor
-          ? "That shape would collapse cameras together. Try another part or rotate the 3D view."
-          : "That shape would collapse cameras together or move them below the floor. Try another part or rotate the 3D view.",
-      );
-      return;
-    }
-    setSegments(shaped);
-    setTrajectorySmoothingVersion(materialized.version);
-    setAddingPivot(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-    const scopeLabel = scopeSegmentId
-      ? `Part ${segments.findIndex((segment) => segment.id === scopeSegmentId) + 1}`
-      : "Whole path";
-    const actionLabel =
-      shape === "straighten"
-        ? "straightened"
-        : shape === "circular"
-          ? "made circular"
-          : "flattened";
-    setNotice(
-      `${scopeLabel} ${actionLabel}. Camera aim and timing stayed the same.`,
-    );
-  }
-
-  function chooseDirectionMode(mode: CameraDirectionMode) {
-    if (isPointDirectionMode(mode) && !directionTarget) {
-      setPlacingLookAtSegmentId(null);
-      setPendingDirectionMode(mode);
-      setPlacingDirectionTarget(true);
-      setPreviewing(false);
-      setPreviewProgress(null);
-      setError(null);
-      return;
-    }
-    if (isPointDirectionMode(mode)) {
-      setSegments((current) =>
-        current.map((segment) => ({ ...segment, look_at_target: null })),
-      );
-    }
-    setDirectionMode(mode);
-    setPlacingLookAtSegmentId(null);
-    setPendingDirectionMode(null);
-    setPlacingDirectionTarget(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function choosePartDirectionTarget(segmentId: string) {
-    setPlacingLookAtSegmentId(segmentId);
-    setPendingDirectionMode(null);
-    setPlacingDirectionTarget(true);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function setPartLookAtTarget(
-    segmentId: string,
-    target: TrajectoryPoint | null,
-  ) {
-    setSegments((current) =>
-      current.map((segment) =>
-        segment.id === segmentId
-          ? { ...segment, look_at_target: target }
-          : segment,
-      ),
-    );
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function removePartLookAtTarget(segmentId: string) {
-    setPartLookAtTarget(segmentId, null);
-    const partNumber =
-      segments.findIndex((segment) => segment.id === segmentId) + 1;
-    setNotice(`Part ${partNumber} now uses the whole-path camera behavior.`);
-  }
-
-  function limitLookAtTargetToPart(segmentId: string) {
-    if (!effectiveDirectionTarget) return;
-    setSegments((current) =>
-      current.map((segment) => ({
-        ...segment,
-        look_at_target:
-          segment.id === segmentId ? effectiveDirectionTarget : null,
-      })),
-    );
-    setDirectionMode("manual");
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-    const partNumber =
-      segments.findIndex((segment) => segment.id === segmentId) + 1;
-    setNotice(
-      `Only Part ${partNumber} looks at that point. Other parts keep their camera angles.`,
-    );
-  }
-
-  function placeDirectionTarget(position: TrajectoryPoint) {
-    const targetViews =
-      placingLookAtSegmentId && targetReferenceView
-        ? cameraViewsFromSegments(
-            segments.map((segment) =>
-              segment.id === placingLookAtSegmentId
-                ? { ...segment, look_at_target: position }
-                : segment,
-            ),
-            targetReferenceView,
-            allowBelowFloor,
-          )
-        : views;
-    if (
-      !(placingLookAtSegmentId
-        ? partLookAtTargetIsClearOfPath(
-            targetViews,
-            position,
-            closedLoop,
-            Math.max(0.02, (trajectoryMap?.space.radius ?? 1) * 0.015),
-            allowBelowFloor,
-          )
-        : cameraTargetIsClearOfPath(
-            targetViews,
-            position,
-            closedLoop,
-            Math.max(0.02, (trajectoryMap?.space.radius ?? 1) * 0.015),
-            undefined,
-            allowBelowFloor,
-          ))
-    ) {
-      setError(
-        "That point is on the camera path. Pick a nearby object away from the teal line.",
-      );
-      return;
-    }
-    if (placingLookAtSegmentId) {
-      setPartLookAtTarget(placingLookAtSegmentId, position);
-      const partNumber =
-        segments.findIndex((segment) => segment.id === placingLookAtSegmentId) +
-        1;
-      setPlacingLookAtSegmentId(null);
-      setPlacingDirectionTarget(false);
-      setNotice(
-        `Part ${partNumber} now looks at that point. Other parts keep their current behavior.`,
-      );
-      return;
-    }
-    setSegments((current) =>
-      current.map((segment) => ({ ...segment, look_at_target: null })),
-    );
-    setDirectionTarget(position);
-    const nextMode =
-      pendingDirectionMode ??
-      (isPointDirectionMode(directionMode) ? directionMode : "look_at");
-    setDirectionMode(nextMode);
-    setPlacingLookAtSegmentId(null);
-    setPendingDirectionMode(null);
-    setPlacingDirectionTarget(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-    setNotice(
-      nextMode === "look_at"
-        ? "Every camera now points at the selected scene point."
-        : "Every camera now points away from the selected scene point.",
-    );
-  }
-
-  function addPathPivot(position: TrajectoryPoint, pathProgress: number) {
-    const inserted = insertTrajectoryPivot(
-      segments,
-      position,
-      pathProgress,
-      closedLoop,
-      allowBelowFloor,
-    );
-    setAddingPivot(false);
-    if (!inserted) {
-      setError("Could not add a pivot there. Choose another part of the path.");
-      return;
-    }
-    setSegments(inserted.segments);
-    setSelectedSegmentId(inserted.segmentId);
-    setSelectedPivot({
-      segmentId: inserted.segmentId,
-      pointIndex: inserted.pointIndex,
-      pivotNumber: inserted.pivotNumber,
-    });
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function selectPathPivot(
-    segmentId: string,
-    pointIndex: number,
-    pivotNumber: number,
-  ) {
-    setSelectedPivot({ segmentId, pointIndex, pivotNumber });
-    setSidebarOpen(true);
-    setSidebarTab("camera");
-    setSelectedSegmentId(segmentId);
-    setAddingPivot(false);
-    setError(null);
-  }
-
-  function setPathPivotCameraAngle(
-    segmentId: string,
-    pointIndex: number,
-    quaternion: TrajectoryQuaternion,
-  ) {
-    setSegments((current) =>
-      directionMode === "manual"
-        ? setTrajectoryPointQuaternion(
-            current,
-            segmentId,
-            pointIndex,
-            quaternion,
-          )
-        : setTrajectoryPointDirectionOverride(
-            current,
-            segmentId,
-            pointIndex,
-            quaternion,
-          ),
-    );
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function clearPath() {
-    setSegments([]);
-    setTrajectorySmoothingVersion(0);
-    setSelectedSegmentId(null);
-    setSelectedPivot(null);
-    setAddingPivot(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setPlacingLookAtSegmentId(null);
-    setClosedLoop(false);
-    setError(null);
-  }
-
-  function updateAllowBelowFloor(nextAllowBelowFloor: boolean) {
-    const belowFloorCount = path.filter(
-      (point) => point[1] < TRAJECTORY_FLOOR_Y - 1e-6,
-    ).length;
-    if (!nextAllowBelowFloor && belowFloorCount > 0) {
-      setError(
-        `${belowFloorCount} camera ${belowFloorCount === 1 ? "is" : "are"} below the floor. Move ${belowFloorCount === 1 ? "it" : "them"} above it first.`,
-      );
-      return;
-    }
-    setAllowBelowFloor(nextAllowBelowFloor);
-    setAddingPivot(false);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function closePathLoop() {
-    if (path.length < 3) return;
-    const nextSegments = normalizeClosedTrajectorySegments(segments);
-    const nextPivots = trajectoryPivotsFromSegments(nextSegments);
-    if (nextPivots.length < 3) {
-      setError("A loop needs at least three different camera points.");
-      return;
-    }
-    if (nextPivots.length !== cameraPivots.length) {
-      setSegments(nextSegments);
-      setSelectedPivot(null);
-    }
-    setClosedLoop(true);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setError(null);
-  }
-
-  function deletePathPart(id: string) {
-    const remaining = segments.filter((segment) => segment.id !== id);
-    setSegments(remaining);
-    if (selectedSegmentId === id) {
-      setSelectedSegmentId(remaining.at(-1)?.id ?? null);
-    }
-    setSelectedPivot(null);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setAddingPivot(false);
-    setClosedLoop(false);
-    setError(null);
-  }
-
-  function deletePathPivot(pivot: SelectedPivot) {
-    const nextSegments = deleteTrajectoryPivot(
-      segments,
-      pivot.segmentId,
-      pivot.pointIndex,
-    );
-    if (!nextSegments) {
-      setError("That camera is no longer in the path.");
-      return;
-    }
-
-    const nextPivots = trajectoryPivotsFromSegments(nextSegments);
-    const nextPivot =
-      nextPivots[Math.min(pivot.pivotNumber - 1, nextPivots.length - 1)] ??
-      null;
-    setSegments(nextSegments);
-    if (nextPivots.length < 3) setClosedLoop(false);
-    setSelectedPivot(
-      nextPivot
-        ? {
-            segmentId: nextPivot.segmentId,
-            pointIndex: nextPivot.pointIndex,
-            pivotNumber: nextPivot.pivotNumber,
-          }
-        : null,
-    );
-    setSelectedSegmentId(nextPivot?.segmentId ?? null);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setAddingPivot(false);
-    setError(null);
-  }
-
-  function updateFrameCount(nextFrameCount: number) {
-    setFrameCount(Math.max(nextFrameCount, minimumFrameCount));
-    setPreviewing(false);
-    setPreviewProgress(null);
-  }
-
-  function updateFps(nextFps: number) {
-    setFps(nextFps);
-    setPreviewing(false);
-    setPreviewProgress(null);
-  }
-
-  function updateTargetFov(nextTargetFovDegrees: number) {
-    setTargetFovDegrees(nextTargetFovDegrees);
-    setPreviewing(false);
-    setPreviewProgress(null);
-  }
-
-  function updateAspectRatio(nextAspectRatio: CameraTrajectoryAspectRatio) {
-    setAspectRatio(nextAspectRatio);
-    setPreviewing(false);
-    setPreviewProgress(null);
-  }
-
-  function applyMovePreset(preset: CameraMovePreset) {
-    if (!targetReferenceView || !pose) return;
-    const segment = createCameraMove(
-      preset,
-      targetReferenceView,
-      pose.centroidWorld,
-      moveAmount,
-      allowBelowFloor,
-    );
-    setSegments([segment]);
-    setTrajectorySmoothingVersion(TRAJECTORY_SMOOTHING_VERSION);
-    setDirectionMode("manual");
-    setDirectionTarget(null);
-    setClosedLoop(false);
-    setSelectedPivot(null);
-    setSelectedSegmentId(segment.id);
-    setPreviewing(false);
-    setPreviewProgress(null);
-    setAddingPivot(false);
-    setPlacingDirectionTarget(false);
-    setPlacingLookAtSegmentId(null);
-    setPendingDirectionMode(null);
-    setError(null);
-    setNotice("Camera move applied. Drag its points to adjust it.");
-  }
-
-  function togglePathPreview() {
-    if (views.length < 2) return;
-    setAddingPivot(false);
-    if (!previewing) {
-      materializeSmoothedTrajectory();
-      if (previewProgress === null || previewProgress >= 1)
-        setPreviewProgress(0);
-    }
-    setPreviewing((current) => !current);
-    setError(null);
-  }
-
-  const observeControlsDock = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
-    const main = node.closest("main");
-    if (!main) return;
-    const updateHeight = () =>
-      main.style.setProperty(
-        "--studio-controls-height",
-        `${node.offsetHeight}px`,
-      );
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!cameraViewExpanded) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setCameraViewExpanded(false);
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [cameraViewExpanded]);
+  const generateBlocker = !hasMotion
+    ? "Set two keys"
+    : !PORTRAIT_GENERATION_ENABLED && aspectRatio === "9:16"
+      ? "9:16 unavailable"
+      : !prompt.trim()
+        ? "Add a prompt"
+        : null;
+  const generateLabel = submitting
+    ? `Starting ${seedCount}…`
+    : (generateBlocker ??
+      `Generate ${seedCount === 1 ? "video" : `${seedCount} videos`}`);
+  const canGenerate = !generateBlocker && !submitting && !savingDraft;
 
   return (
-    <div className="camera-editor relative h-dvh min-h-dvh overflow-hidden bg-[#ffffff] font-sans text-[#202733]">
+    <div className="camera-editor">
       <input
         ref={fileInput}
         type="file"
@@ -1795,652 +1336,385 @@ export function CameraTrajectoryPage({
         />
       ) : (
         <div
-          className="flex h-full min-h-0 flex-col"
+          className="studio-workspace"
+          data-tab={sidebarTab}
           aria-hidden={homeOpen}
           inert={homeOpen ? true : undefined}
         >
           {toolbarContainer &&
             !homeOpen &&
             createPortal(
-              <div className="flex items-center gap-3">
-                <span className="hidden text-[11px] text-[#727b88] md:inline">
-                  {pose.depthUri === EXAMPLE_DEPTH ? "Example · " : ""}
-                  {views.length} cameras · {(frameCount / fps).toFixed(1)} s
-                </span>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    aria-label="Undo"
-                    title="Undo (⌘Z / Ctrl+Z)"
-                    disabled={!edits.canUndo || submitting || savingDraft}
-                    onClick={edits.undo}
-                    className="grid h-8 w-8 place-items-center rounded-md border border-transparent text-[#202733]/65 hover:bg-[#202733]/10 disabled:opacity-25"
-                  >
-                    <Undo2 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Redo"
-                    title="Redo (⌘⇧Z / Ctrl+Shift+Z)"
-                    disabled={!edits.canRedo || submitting || savingDraft}
-                    onClick={edits.redo}
-                    className="grid h-8 w-8 place-items-center rounded-md border border-transparent text-[#202733]/65 hover:bg-[#202733]/10 disabled:opacity-25"
-                  >
-                    <Redo2 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHistoryOpen(true)}
-                    aria-label="Saved scenes"
-                    title="Saved scenes"
-                    className="flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 text-xs text-[#202733]/65 transition hover:border-[#202733]/30 hover:bg-[#202733]/[0.06] hover:text-[#202733] disabled:opacity-30"
-                  >
-                    <HistoryIcon className="h-4 w-4" />
-                    <span className="hidden lg:inline">Saved</span>
-                    {queueItems.some((item) =>
-                      item.variants.some(
-                        (variant) => variant.video_uri === null,
-                      ),
-                    ) && (
-                      <span className="rounded bg-[#334155]/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#1e293b]">
-                        {
-                          queueItems.filter((item) =>
-                            item.variants.some(
-                              (variant) => variant.video_uri === null,
-                            ),
-                          ).length
-                        }
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={goHome}
-                    aria-label="Home"
-                    title="Home"
-                    className="flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 text-xs text-[#202733]/65 transition hover:border-[#202733]/30 hover:bg-[#202733]/[0.06] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px disabled:opacity-30"
-                  >
-                    <House className="h-4 w-4" />
-                  </button>
-                </div>
+              <div className="studio-toolbar">
+                <button
+                  type="button"
+                  aria-label="Undo"
+                  title="Undo (⌘Z / Ctrl+Z)"
+                  disabled={!edits.canUndo || submitting || savingDraft}
+                  onClick={edits.undo}
+                  className="studio-icon-button hide-compact"
+                >
+                  <Undo2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Redo"
+                  title="Redo (⌘⇧Z / Ctrl+Shift+Z)"
+                  disabled={!edits.canRedo || submitting || savingDraft}
+                  onClick={edits.redo}
+                  className="studio-icon-button hide-compact"
+                >
+                  <Redo2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  aria-label="Saved scenes"
+                  title="Saved scenes"
+                  className="studio-button is-ghost"
+                >
+                  <HistoryIcon className="h-4 w-4" />
+                  <span className="hide-compact">Saved</span>
+                  {pendingGenerations > 0 && (
+                    <span className="studio-count">{pendingGenerations}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={goHome}
+                  aria-label="Home"
+                  title="Home"
+                  className="studio-icon-button"
+                >
+                  <House className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="studio-cta"
+                  disabled={
+                    submitting ||
+                    savingDraft ||
+                    (generateBlocker !== null && generateBlocker !== "Add a prompt")
+                  }
+                  title={generateBlocker ?? "Generate video"}
+                  onClick={() => {
+                    if (generateBlocker === "Add a prompt") {
+                      setSidebarTab("video");
+                      return;
+                    }
+                    void generate();
+                  }}
+                >
+                  {submitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  <span className="hide-compact">{generateLabel}</span>
+                </button>
               </div>,
               toolbarContainer,
             )}
 
-          <main
-            className="studio-workspace relative min-h-0 flex-1 overflow-hidden bg-[#ffffff]"
-            style={
-              {
-                "--studio-sidebar-width": sidebarOpen
-                  ? "min(264px, calc(100vw - 96px))"
-                  : "0px",
-              } as React.CSSProperties
-            }
-          >
+          <aside className="studio-panel" aria-label="Shot tools">
+            <span className="studio-sheet-grabber" aria-hidden />
+            <div className="studio-tabs" role="tablist" aria-label="Shot tools">
+              {(
+                [
+                  ["path", "Path", Route],
+                  ["camera", "Camera", Camera],
+                  ["video", "Video", Film],
+                ] as const
+              ).map(([tab, label, Icon]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  id={`studio-tab-${tab}`}
+                  aria-selected={sidebarTab === tab}
+                  aria-controls={`studio-panel-${tab}`}
+                  onClick={() => setSidebarTab(tab)}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
             <div
-              className="studio-viewport absolute inset-y-0 right-0"
-              style={{ left: "var(--studio-sidebar-width)" }}
+              className="studio-panel-body"
+              role="tabpanel"
+              id={`studio-panel-${sidebarTab}`}
+              aria-labelledby={`studio-tab-${sidebarTab}`}
             >
-              <div className="h-full w-full">
-                <CameraTrajectoryCanvas
-                  key={pose.imageUrl}
-                  pose={pose}
-                  referenceView={referenceView}
-                  views={views}
-                  segments={segments}
-                  selectedPivot={selectedPivot}
-                  addingPivot={addingPivot}
-                  previewing={previewing}
-                  previewProgress={previewProgress}
-                  onPreviewProgress={setPreviewProgress}
-                  disabled={false}
-                  frameCount={frameCount}
-                  previewSeconds={frameCount / fps}
-                  frameWidth={targetFormat.width}
-                  frameHeight={targetFormat.height}
-                  directionMode={directionMode}
-                  directionTarget={effectiveDirectionTarget ?? null}
-                  directionTargetCandidates={trajectoryMap.worldPoints}
-                  placingDirectionTarget={placingDirectionTarget}
-                  placingDirectionTargetMode={
-                    pendingDirectionMode ??
-                    (isPointDirectionMode(directionMode)
-                      ? directionMode
-                      : "look_at")
-                  }
-                  closedLoop={closedLoop}
+              {sidebarTab === "path" && (
+                <PathPanel
+                  imageUrl={previewUrl ?? pose.imageUrl}
+                  fileName={fileName}
+                  keyCount={sortedKeys.length}
+                  travel={moveAmount}
                   allowBelowFloor={allowBelowFloor}
-                  onPreviewDone={() => setPreviewing(false)}
-                  onDrawingViewChange={setDrawingView}
-                  onPointChange={movePathPoint}
-                  onPointSelect={selectPathPivot}
-                  onPivotAdd={addPathPivot}
-                  onDirectionTargetChange={placeDirectionTarget}
-                  onDirectionTargetCancel={() => {
-                    setPlacingDirectionTarget(false);
-                    setPendingDirectionMode(null);
-                    setPlacingLookAtSegmentId(null);
-                    setError(null);
-                  }}
-                  onDirectionTargetMiss={() =>
-                    setError(
-                      "No scene point here. Choose a point on the visible scene.",
+                  onReplaceImage={() => fileInput.current?.click()}
+                  onPreset={applyPreset}
+                  onTravelChange={setMoveAmount}
+                  onEvenSpacing={() => editKeys(spaceKeyframesEvenly(keyframes, frameCount))}
+                  onSmoothAll={() =>
+                    editKeys(
+                      keyframes.map((key) => ({
+                        ...key,
+                        interpolation: "smooth",
+                        ease: null,
+                      })),
                     )
                   }
-                />
-              </div>
-            </div>
-
-            <aside
-              className="studio-sidebar"
-              hidden={!sidebarOpen}
-              aria-label="Scene tools"
-            >
-              <div
-                className="studio-sidebar-tabs"
-                role="tablist"
-                aria-label="Scene tools"
-              >
-                {(["path", "camera", "video"] as const).map((tab) => {
-                  const Icon =
-                    tab === "path"
-                      ? Route
-                      : tab === "camera"
-                        ? Camera
-                        : SlidersHorizontal;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      role="tab"
-                      aria-selected={sidebarTab === tab}
-                      aria-controls={`studio-tab-${tab}`}
-                      onClick={() => setSidebarTab(tab)}
-                      title={
-                        tab === "path"
-                          ? "Path"
-                          : tab === "camera"
-                            ? "Camera"
-                            : "Video"
-                      }
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      <span>
-                        {tab === "path"
-                          ? "Path"
-                          : tab === "camera"
-                            ? "Camera"
-                            : "Video"}
-                      </span>
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="studio-sidebar-body">
-                <div
-                  id="studio-tab-path"
-                  aria-labelledby="studio-tool-path"
-                  role="tabpanel"
-                  hidden={sidebarTab !== "path" || placingDirectionTarget}
-                >
-                  <div
-                    id="trajectory-drawing-panel"
-                    className="studio-path-panel"
-                  >
-                    <div className="studio-source mb-2 flex items-center gap-2.5 border-b border-[#202733]/10 pb-2">
-                      <button
-                        type="button"
-                        onClick={chooseNewImage}
-                        className="group w-16 shrink-0 overflow-hidden rounded bg-[#ffffff] disabled:opacity-30"
-                      >
-                        <img
-                          src={previewUrl ?? pose.imageUrl}
-                          alt="Change reference image"
-                          className="aspect-video w-full object-cover transition group-hover:opacity-80"
-                        />
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748b]">
-                          Reference image
-                        </p>
-                        <p
-                          className="mt-0.5 truncate text-[10px] text-[#202733]/55"
-                          title={fileName}
-                        >
-                          {fileName}
-                        </p>
-                      </div>
-                    </div>
-                    <details
-                      open={path.length < 2}
-                      className="studio-presets mb-3 rounded-lg border border-[#202733]/10 bg-white p-3"
-                    >
-                      <summary className="cursor-pointer text-[11px] font-medium text-[#334155]">
-                        Camera move presets
-                      </summary>
-                      <div className="mt-3 grid grid-cols-2 gap-1.5">
-                        {CAMERA_MOVE_PRESETS.map((preset) => (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            onClick={() => applyMovePreset(preset.id)}
-                            title="Replace the current path. Undo restores it."
-                            className="rounded-md border border-[#334155]/20 bg-[#f1f5f9]/50 px-2 py-2 text-xs font-medium text-[#1e293b] hover:bg-[#f1f5f9]"
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                      <label
-                        title="Amount used by the next camera move"
-                        className="mt-3 flex items-center gap-3 text-[10px] text-[#727b88]"
-                      >
-                        Travel{" "}
-                        <input
-                          aria-label="Camera move amount"
-                          type="range"
-                          min="0.1"
-                          max="0.6"
-                          step="0.05"
-                          value={moveAmount}
-                          onChange={(event) =>
-                            setMoveAmount(Number(event.target.value))
-                          }
-                          className="min-w-0 flex-1 accent-[#334155]"
-                        />
-                        <span className="w-8 text-right tabular-nums">
-                          {Math.round(moveAmount * 100)}%
-                        </span>
-                      </label>
-                    </details>
-                    <TrajectoryDrawPad
+                  onReset={resetShot}
+                  onAllowBelowFloorChange={setAllowBelowFloor}
+                  map={
+                    <PlanMap
                       points={trajectoryMap.worldPoints}
                       colors={trajectoryMap.colors}
-                      referencePosition={referenceView.position}
-                      segments={segments}
-                      selectedSegmentId={selectedSegmentId}
-                      path={path}
-                      view={
-                        drawingView ??
-                        cameraDrawingView(referenceView.quaternion)
-                      }
-                      space={trajectoryMap.space}
-                      previewing={previewing}
-                      addingPivot={addingPivot}
-                      closedLoop={closedLoop}
-                      allowBelowFloor={allowBelowFloor}
-                      disabled={false}
-                      onChange={updateDrawnSegments}
-                      onComplete={completeDrawnSegments}
-                      onSelectPart={setSelectedSegmentId}
-                      onDeletePart={deletePathPart}
-                      onApplyShape={applyPathShape}
-                      onSmooth={smoothPath}
-                      onTogglePivot={() => {
-                        setAddingPivot((current) => !current);
-                        setPreviewing(false);
-                        setPreviewProgress(null);
-                        setError(null);
-                      }}
-                      onCloseLoop={closePathLoop}
-                      onAllowBelowFloorChange={updateAllowBelowFloor}
-                      onClear={clearPath}
-                      onPlay={togglePathPreview}
-                    />{" "}
-                  </div>
-                </div>
-                <div
-                  id="studio-tab-camera"
-                  aria-labelledby="studio-tool-camera"
-                  role="tabpanel"
-                  hidden={sidebarTab !== "camera"}
-                >
-                  <CameraDirectionPanel
-                    pivots={cameraPivots}
-                    selectedPivot={selectedPivot}
-                    selectedView={selectedCameraView}
-                    directionMode={directionMode}
-                    hasDirectionTarget={directionTarget !== null}
-                    selectedPart={
-                      selectedPart
-                        ? {
-                            id: selectedPart.id,
-                            number: selectedPartIndex + 1,
-                            hasLookAtTarget:
-                              selectedPart.look_at_target != null,
-                          }
-                        : null
-                    }
-                    disabled={addingPivot}
-                    hidden={sidebarTab !== "camera" || placingDirectionTarget}
-                    onSelect={(pivot) =>
-                      selectPathPivot(
-                        pivot.segmentId,
-                        pivot.pointIndex,
-                        pivot.pivotNumber,
-                      )
-                    }
-                    onAngleChange={(pivot, quaternion) => {
-                      setPathPivotCameraAngle(
-                        pivot.segmentId,
-                        pivot.pointIndex,
-                        quaternion,
-                      );
-                    }}
-                    onDirectionModeChange={chooseDirectionMode}
-                    onChooseDirectionTarget={() => {
-                      setPlacingLookAtSegmentId(null);
-                      if (isPointDirectionMode(directionMode)) {
-                        setPendingDirectionMode(directionMode);
-                      }
-                      setPlacingDirectionTarget(true);
-                      setPreviewing(false);
-                      setPreviewProgress(null);
-                      setError(null);
-                    }}
-                    onChoosePartDirectionTarget={choosePartDirectionTarget}
-                    onRemovePartDirectionTarget={removePartLookAtTarget}
-                    onLimitDirectionTargetToPart={limitLookAtTargetToPart}
-                    allowBelowFloor={allowBelowFloor}
-                    onPositionChange={(pivot, position) =>
-                      movePathPoint(pivot.segmentId, pivot.pointIndex, position)
-                    }
-                    onDelete={deletePathPivot}
-                  />{" "}
-                </div>
-                <div
-                  id="studio-tab-video"
-                  aria-labelledby="studio-tool-video"
-                  role="tabpanel"
-                  hidden={sidebarTab !== "video"}
-                >
-                  <div className="studio-video-fields flex flex-col gap-3">
-                    <OutputNumberInput
-                      label="FOV°"
-                      value={targetFovDegrees}
-                      min={MIN_TARGET_FOV_DEGREES}
-                      max={MAX_TARGET_FOV_DEGREES}
-                      disabled={false}
-                      onChange={updateTargetFov}
-                    />
-                    <label className="block w-full">
-                      <span className="mb-1 block text-[11px] font-medium text-[#202733]/55">
-                        Video prompt <span className="text-[#334155]"></span>
-                      </span>
-                      <input
-                        aria-label="Video prompt"
-                        value={prompt}
-                        onChange={(event) => setPrompt(event.target.value)}
-                        maxLength={1000}
-                        placeholder="Example: a person walks toward the window"
-                        className="h-11 w-full rounded-md border border-[#202733]/15 bg-[#202733]/[0.06] px-3 text-sm text-[#202733] outline-none transition placeholder:text-[#202733]/55 hover:border-[#202733]/25 focus:border-[#334155] focus:ring-2 focus:ring-[#334155]/20 disabled:opacity-40"
-                      />
-                    </label>
-                  </div>{" "}
-                </div>
-              </div>
-            </aside>
-            {!sidebarOpen && (
-              <button
-                className="studio-sidebar-restore"
-                type="button"
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            )}
-
-            {(selectedCameraView || playingCamera) && (
-              <div
-                style={
-                  {
-                    "--camera-aspect": targetFormat.width / targetFormat.height,
-                  } as React.CSSProperties
-                }
-                className={`studio-camera-inset ${cameraViewExpanded ? "is-expanded" : ""}`}
-              >
-                <div className="studio-camera-inset-header">
-                  <span>
-                    {playingCamera
-                      ? "Playback"
-                      : `Camera ${selectedPivot?.pivotNumber ?? ""}`}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={
-                      cameraViewExpanded
-                        ? "Minimize camera view"
-                        : "Expand camera view"
-                    }
-                    title="Toggle full screen camera view"
-                    onClick={() => setCameraViewExpanded(!cameraViewExpanded)}
-                  >
-                    {cameraViewExpanded ? (
-                      <Minimize2 className="h-3 w-3" />
-                    ) : (
-                      <Maximize2 className="h-3 w-3" />
-                    )}
-                  </button>
-                </div>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  aria-label="Toggle full screen camera view"
-                  onClick={() => setCameraViewExpanded(!cameraViewExpanded)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter")
-                      setCameraViewExpanded(!cameraViewExpanded);
-                    if (event.key === "Escape") setCameraViewExpanded(false);
-                  }}
-                  className="studio-camera-inset-image"
-                  style={{
-                    aspectRatio: `${targetFormat.width} / ${targetFormat.height}`,
-                  }}
-                >
-                  {playingCamera ? (
-                    <CameraPlaybackView
-                      pose={pose}
-                      views={views}
-                      previewing={previewing}
-                      previewProgress={previewProgress}
-                      onPreviewProgress={setPreviewProgress}
+                      source={referenceView}
+                      curve={curve}
+                      playhead={playhead}
+                      selectedKeyId={selectedKeyId}
+                      aimTarget={effectiveAimTarget}
+                      fovRadians={fovRadians}
+                      frameAspect={targetFormat.width / targetFormat.height}
                       frameCount={frameCount}
-                      previewSeconds={frameCount / fps}
-                      frameWidth={targetFormat.width}
-                      frameHeight={targetFormat.height}
-                      directionMode={directionMode}
-                      directionTarget={effectiveDirectionTarget ?? null}
-                      closedLoop={closedLoop}
+                      fps={fps}
+                      unit={timeUnit}
                       allowBelowFloor={allowBelowFloor}
-                      onPreviewDone={() => {
-                        setPreviewing(false);
-                        setPreviewProgress(1);
-                      }}
+                      onSelectKey={selectKey}
+                      onMoveKey={moveKey}
+                      onSketch={applySketch}
                     />
-                  ) : (
-                    <CameraPointCloudView
-                      pose={pose}
-                      view={selectedCameraView!}
-                    />
-                  )}
+                  }
+                />
+              )}
+              {sidebarTab === "camera" && (
+                <CameraPanel
+                  playhead={playhead}
+                  curve={curve}
+                  selectedKeyId={selectedKeyId}
+                  pendingPose={pendingPose}
+                  aimMode={aimMode}
+                  aimTarget={effectiveAimTarget}
+                  fovDegrees={targetFovDegrees}
+                  minFov={MIN_TARGET_FOV_DEGREES}
+                  maxFov={MAX_TARGET_FOV_DEGREES}
+                  fps={fps}
+                  frameCount={frameCount}
+                  unit={timeUnit}
+                  allowBelowFloor={allowBelowFloor}
+                  onPilot={startPilot}
+                  onToggleKey={toggleKeyAtPlayhead}
+                  onSetPending={setKeyAtPlayhead}
+                  onJumpKey={jumpKey}
+                  onSelectKey={selectKey}
+                  onPoseChange={changePoseAtPlayhead}
+                  onAimModeChange={chooseAimMode}
+                  onPickTarget={() => {
+                    playhead.pause();
+                    setPiloting(false);
+                    setPlacingTarget(true);
+                  }}
+                  onCenterTarget={() => pose && setAimTarget(pose.centroidWorld)}
+                  onInterpolationChange={(id, interpolation) =>
+                    editKeys(
+                      keyframes.map((key) =>
+                        key.id === id ? { ...key, interpolation } : key,
+                      ),
+                    )
+                  }
+                  onEaseChange={(id, ease) =>
+                    editKeys(
+                      keyframes.map((key) =>
+                        key.id === id ? { ...key, ease } : key,
+                      ),
+                    )
+                  }
+                  onGapChange={(index, frames) =>
+                    editKeys(setKeyframeGap(keyframes, index, frames, frameCount))
+                  }
+                  onDeleteKey={deleteKey}
+                  onFovChange={setTargetFovDegrees}
+                  onGoToEnd={() => {
+                    playhead.pause();
+                    playhead.setFrame(lastFrame);
+                  }}
+                />
+              )}
+              {sidebarTab === "video" && (
+                <VideoPanel
+                  prompt={prompt}
+                  seedCount={seedCount}
+                  minSeeds={MIN_SEED_COUNT}
+                  maxSeeds={MAX_SEED_COUNT}
+                  firstSeed={FIRST_GENERATION_SEED}
+                  aspectRatio={aspectRatio}
+                  portraitEnabled={PORTRAIT_GENERATION_ENABLED}
+                  frameCount={frameCount}
+                  fps={fps}
+                  frameWidth={targetFormat.width}
+                  frameHeight={targetFormat.height}
+                  keyCount={sortedKeys.length}
+                  generateLabel={generateLabel}
+                  canGenerate={canGenerate}
+                  submitting={submitting}
+                  savingDraft={savingDraft}
+                  onPromptChange={setPrompt}
+                  onSeedCountChange={setSeedCount}
+                  onAspectRatioChange={setAspectRatio}
+                  onGenerate={() => void generate()}
+                  onSaveDraft={() => void saveDraft()}
+                />
+              )}
+            </div>
+          </aside>
+
+          <main className="studio-stage">
+            <CameraTrajectoryCanvas
+              key={pose.imageUrl}
+              pose={pose}
+              referenceView={referenceView}
+              curve={curve}
+              playhead={playhead}
+              selectedKeyId={selectedKeyId}
+              fovRadians={fovRadians}
+              frameWidth={targetFormat.width}
+              frameHeight={targetFormat.height}
+              aimMode={aimMode}
+              aimTarget={effectiveAimTarget}
+              allowBelowFloor={allowBelowFloor}
+              theme={theme}
+              fill={previewFill}
+              sceneRadius={trajectoryMap.space.radius}
+              piloting={piloting}
+              pendingPose={pendingPose}
+              targetCandidates={trajectoryMap.worldPoints}
+              placingTarget={placingTarget}
+              onKeySelect={selectKey}
+              onKeyMove={moveKey}
+              onLiveCameraMove={moveLiveCamera}
+              onPilotPose={changePoseAtPlayhead}
+              onPilotStart={startPilot}
+              onPilotExit={() => setPiloting(false)}
+              onSetKey={setKeyAtPlayhead}
+              onTargetPick={(position) => {
+                setAimTarget(position);
+                setAimMode("look_at");
+                setPlacingTarget(false);
+                setError(null);
+              }}
+              onTargetCancel={() => {
+                setPlacingTarget(false);
+                setError(null);
+              }}
+              onTargetMiss={() =>
+                setError("No scene point here. Choose a point on the visible scene.")
+              }
+            />
+
+            {!piloting && !placingTarget && (
+              <div className="studio-float studio-preview-style">
+                <span>Preview</span>
+                <div className="studio-seg is-small" role="group" aria-label="Preview style">
+                  <button
+                    type="button"
+                    aria-pressed={previewFill}
+                    title="Fill gaps the way the generated video will"
+                    onClick={() => setPreviewFill(true)}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Filled
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={!previewFill}
+                    title="Show only the measured depth points"
+                    onClick={() => setPreviewFill(false)}
+                  >
+                    Points
+                  </button>
                 </div>
               </div>
             )}
-            <div
-              data-studio-controls
-              ref={observeControlsDock}
-              className="studio-controls-dock absolute inset-x-3 bottom-3 z-40 mx-auto max-w-6xl"
-            >
-              {error && (
-                <div className="studio-controls-feedback mb-2 rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-center text-xs text-red-800 backdrop-blur">
-                  {error}
-                </div>
-              )}
-              {notice && (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="studio-controls-feedback mb-2 rounded-md border border-emerald-300/25 bg-emerald-50/95 px-3 py-2 text-center text-xs text-emerald-800 backdrop-blur"
-                >
-                  {notice}
-                </div>
-              )}
 
-              {views.length >= 2 && !placingDirectionTarget && (
-                <div className="studio-timeline mb-2 mx-auto flex max-w-3xl items-center gap-3 rounded-lg border border-[#202733]/10 bg-[#ffffff]/95 px-4 py-3 shadow-md backdrop-blur">
-                  <button
-                    type="button"
-                    aria-label={
-                      previewing
-                        ? "Pause camera preview"
-                        : "Play camera preview"
-                    }
-                    onClick={togglePathPreview}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#334155] text-white"
-                  >
-                    {previewing ? (
-                      <Pause className="h-3.5 w-3.5" />
-                    ) : (
-                      <Play className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                  <div className="studio-timeline-track min-w-0 flex-1">
-                    <div className="studio-timeline-caption mb-1 flex justify-between text-[10px] text-[#727b88]">
-                      <span className="studio-timeline-label">
-                        Camera preview
-                      </span>
-                      <span className="tabular-nums">
-                        {(((previewProgress ?? 0) * frameCount) / fps).toFixed(
-                          2,
-                        )}{" "}
-                        / {(frameCount / fps).toFixed(2)}s
-                      </span>
-                    </div>
-                    <input
-                      aria-label="Camera preview timeline"
-                      type="range"
-                      min="0"
-                      max="1"
-                      step={1 / (frameCount - 1)}
-                      value={previewProgress ?? 0}
-                      onChange={(event) => {
-                        materializeSmoothedTrajectory();
-                        setPreviewing(false);
-                        setAddingPivot(false);
-                        setPreviewProgress(Number(event.target.value));
-                      }}
-                      className="block w-full accent-[#334155]"
-                    />
-                  </div>
-                  {playingCamera && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPreviewing(false);
-                        setPreviewProgress(null);
-                      }}
-                      className="shrink-0 text-xs font-medium text-[#334155]"
-                    >
-                      Stop preview
+            {!piloting && sortedKeys.length > 0 && (
+              <div
+                className={`studio-monitor ${monitorExpanded ? "is-expanded" : ""}`}
+                style={{ aspectRatio: `${targetFormat.width} / ${targetFormat.height}` }}
+              >
+                <ShotCameraView
+                  pose={pose}
+                  curve={curve}
+                  playhead={playhead}
+                  fovRadians={fovRadians}
+                  theme={theme}
+                />
+                <MonitorOverlay
+                  playhead={playhead}
+                  fps={fps}
+                  frameCount={frameCount}
+                  unit={timeUnit}
+                  fill={previewFill}
+                  expanded={monitorExpanded}
+                  onToggleExpanded={() => setMonitorExpanded(!monitorExpanded)}
+                />
+              </div>
+            )}
+
+            {(error || notice) && (
+              <div className="studio-toasts" aria-live="polite">
+                {error && (
+                  <div className="studio-toast is-error" role="alert">
+                    <span>{error}</span>
+                    <button type="button" aria-label="Dismiss" onClick={() => setError(null)}>
+                      <X className="h-3.5 w-3.5" />
                     </button>
-                  )}
-                </div>
-              )}
-
-              {
-                <div
-                  aria-hidden={placingDirectionTarget ? true : undefined}
-                  inert={placingDirectionTarget ? true : undefined}
-                  className={`studio-output-controls relative flex items-center gap-2 rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-2.5 pl-4 shadow-sm  sm:gap-3 xl:flex-nowrap ${placingDirectionTarget ? "pointer-events-none invisible" : ""}`}
-                >
-                  <button
-                    type="button"
-                    title="Video settings"
-                    aria-label="Video settings"
-                    onClick={() => {
-                      setSidebarOpen(true);
-                      setSidebarTab("video");
-                    }}
-                    className="studio-video-toggle"
-                  >
-                    <SlidersHorizontal className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={savingDraft || submitting}
-                    onClick={() => void saveDraft()}
-                    aria-label="Save draft"
-                    title="Save draft"
-                    className="studio-save-draft flex h-9 items-center justify-center gap-2 rounded-md border border-[#202733]/20 px-3 text-sm font-semibold text-[#202733]/75 transition hover:border-[#202733]/35 hover:bg-[#202733]/[0.07] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/60 active:translate-y-px disabled:cursor-wait disabled:opacity-35 sm:px-4"
-                  >
-                    {savingDraft ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                    <span className="hidden sm:inline">
-                      {savingDraft ? "Saving…" : "Save draft"}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={
-                      !prompt.trim() ||
-                      views.length < 2 ||
-                      frameCount < requiredFrameCount ||
-                      (!PORTRAIT_GENERATION_ENABLED &&
-                        aspectRatio === "9:16") ||
-                      submitting ||
-                      savingDraft
-                    }
-                    onClick={() => void generate()}
-                    aria-label="Generate video"
-                    title="Generate video"
-                    className="studio-generate ml-auto flex h-9 items-center justify-center gap-2 rounded-md bg-[#334155] px-3 text-sm font-semibold text-white transition hover:bg-[#1e293b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/70 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 sm:px-4"
-                  >
-                    {submitting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-4 w-4" />
-                    )}
-                    <span className="studio-generate-text">
-                      {" "}
-                      {views.length < 2
-                        ? "Choose a path"
-                        : !PORTRAIT_GENERATION_ENABLED && aspectRatio === "9:16"
-                          ? "9:16 unavailable"
-                          : requiredFrameCount > MAX_FRAME_COUNT
-                            ? "Remove path points"
-                            : frameCount < requiredFrameCount
-                              ? `Use ${requiredFrameCount}+ frames`
-                              : !prompt.trim()
-                                ? "Add a prompt"
-                                : submitting
-                                  ? `Starting ${seedCount}…`
-                                  : `Generate ${seedCount === 1 ? "video" : `${seedCount} videos`}`}
-                    </span>
-                  </button>
-                </div>
-              }
-            </div>
+                  </div>
+                )}
+                {notice && (
+                  <div className="studio-toast" role="status">
+                    <span>{notice}</span>
+                    <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)}>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </main>
+
+          <Timeline
+            playhead={playhead}
+            curve={curve}
+            frameCount={frameCount}
+            fps={fps}
+            unit={timeUnit}
+            selectedKeyId={selectedKeyId}
+            autoKey={autoKey}
+            onUnitChange={setTimeUnit}
+            onAutoKeyChange={setAutoKey}
+            onSelectKey={selectKey}
+            onRetimeKey={(id, frame) => {
+              const next = retimeKeyframe(keyframes, id, frame, frameCount);
+              editKeys(next);
+              const moved = next.find((key) => key.id === id);
+              if (moved) playhead.setFrame(moved.frame);
+            }}
+            onToggleKey={toggleKeyAtPlayhead}
+            onInterpolationChange={(id, interpolation) =>
+              editKeys(
+                keyframes.map((key) =>
+                  key.id === id ? { ...key, interpolation } : key,
+                ),
+              )
+            }
+          />
         </div>
       )}
 
       {ready && homeOpen && (
-        <div className="absolute inset-0 z-[60] bg-[#ffffff]">
+        <div className="studio-home-overlay">
           <UploadScreen
             previewUrl={previewUrl}
             posing={false}
@@ -2472,355 +1746,54 @@ export function CameraTrajectoryPage({
   );
 }
 
-function CameraDirectionPanel({
-  pivots,
-  selectedPivot,
-  selectedView,
-  directionMode,
-  hasDirectionTarget,
-  selectedPart,
-  disabled,
-  hidden,
-  onSelect,
-  onAngleChange,
-  onDirectionModeChange,
-  onChooseDirectionTarget,
-  onChoosePartDirectionTarget,
-  onRemovePartDirectionTarget,
-  onLimitDirectionTargetToPart,
-  onDelete,
-  allowBelowFloor,
-  onPositionChange,
+function MonitorOverlay({
+  playhead,
+  fps,
+  frameCount,
+  unit,
+  fill,
+  expanded,
+  onToggleExpanded,
 }: {
-  pivots: readonly TrajectoryPivot[];
-  selectedPivot: SelectedPivot | null;
-  selectedView: CameraView | null;
-  directionMode: CameraDirectionMode;
-  hasDirectionTarget: boolean;
-  selectedPart: {
-    id: string;
-    number: number;
-    hasLookAtTarget: boolean;
-  } | null;
-  disabled: boolean;
-  hidden: boolean;
-  onSelect: (pivot: TrajectoryPivot) => void;
-  onAngleChange: (
-    pivot: SelectedPivot,
-    quaternion: TrajectoryQuaternion,
-  ) => void;
-  onDirectionModeChange: (mode: CameraDirectionMode) => void;
-  onChooseDirectionTarget: () => void;
-  onChoosePartDirectionTarget: (segmentId: string) => void;
-  onRemovePartDirectionTarget: (segmentId: string) => void;
-  onLimitDirectionTargetToPart: (segmentId: string) => void;
-  onDelete: (pivot: SelectedPivot) => void;
-  allowBelowFloor: boolean;
-  onPositionChange: (pivot: SelectedPivot, position: TrajectoryPoint) => void;
+  playhead: Playhead;
+  fps: number;
+  frameCount: number;
+  unit: TimeUnit;
+  fill: boolean;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }) {
-  const selectedPosition = pivots.find(
-    (p) =>
-      p.segmentId === selectedPivot?.segmentId &&
-      p.pointIndex === selectedPivot?.pointIndex,
-  )?.position;
-  const aim = selectedView ? cameraAimDegrees(selectedView.quaternion) : null;
-  const pointDirectionMode = isPointDirectionMode(directionMode);
-  const selectedUsesPointTarget =
-    pointDirectionMode ||
-    Boolean(
-      pivots.find((p) => p.pivotNumber === selectedPivot?.pivotNumber)
-        ?.hasLookAtTarget,
-    );
+  const frame = usePlayheadFrame(playhead);
+  const playing = usePlayheadPlaying(playhead);
   return (
-    <section
-      id="camera-direction-panel"
-      hidden={hidden}
-      aria-label="Camera properties"
-    >
-      <div className="studio-camera-list" aria-label="Cameras">
-        {pivots.map((pivot) => (
-          <button
-            type="button"
-            key={`${pivot.segmentId}:${pivot.pointIndex}`}
-            data-camera-point={pivot.pivotNumber}
-            aria-label={`Select camera at point ${pivot.pivotNumber}`}
-            aria-pressed={pivot.pivotNumber === selectedPivot?.pivotNumber}
-            onClick={() => onSelect(pivot)}
-          >
-            <span>{pivot.pivotNumber}</span>
-            <Camera className="h-3.5 w-3.5" />
-          </button>
-        ))}
-        {selectedPivot && (
-          <button
-            type="button"
-            className="ml-auto"
-            title="Delete camera"
-            aria-label={`Delete camera point ${selectedPivot.pivotNumber}`}
-            disabled={disabled}
-            onClick={() => onDelete(selectedPivot)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-      {selectedPivot && selectedPosition && aim ? (
-        <>
-          <div className="studio-property-heading">Position</div>
-          <div className="grid grid-cols-3 gap-1">
-            {(["X", "Y", "Z"] as const).map((axis, index) => (
-              <CameraPositionInput
-                key={`${selectedPivot.pivotNumber}:${axis}`}
-                axis={axis}
-                value={selectedPosition[index]}
-                min={axis === "Y" && !allowBelowFloor ? 0 : undefined}
-                onChange={(value) => {
-                  const position: TrajectoryPoint = [...selectedPosition];
-                  position[index] = value;
-                  onPositionChange(selectedPivot, position);
-                }}
-              />
-            ))}
-          </div>
-          {!selectedUsesPointTarget && (
-            <>
-              <div className="studio-property-heading">Rotation</div>
-              <div className="grid grid-cols-2 gap-1">
-                <CameraPositionInput
-                  axis="Yaw"
-                  value={aim.yaw}
-                  onChange={(value) =>
-                    onAngleChange(
-                      selectedPivot,
-                      cameraQuaternionFromAim(value, aim.pitch),
-                    )
-                  }
-                />
-                <CameraPositionInput
-                  axis="Pitch"
-                  value={aim.pitch}
-                  min={-89}
-                  max={89}
-                  onChange={(value) =>
-                    onAngleChange(
-                      selectedPivot,
-                      cameraQuaternionFromAim(aim.yaw, value),
-                    )
-                  }
-                />
-              </div>
-            </>
-          )}
-        </>
-      ) : (
-        <p className="py-3 text-[11px] text-slate-500">
-          Select a camera in the viewport.
-        </p>
-      )}
-      <div className="studio-property-heading">Aim</div>
-      <div className="grid grid-cols-2 gap-1" role="group" aria-label="Aim">
-        {CAMERA_DIRECTION_PRESETS.map((preset) => (
-          <button
-            type="button"
-            key={preset.mode}
-            data-camera-direction-mode={preset.mode}
-            aria-pressed={directionMode === preset.mode}
-            title={preset.title}
-            onClick={() => onDirectionModeChange(preset.mode)}
-            className="studio-property-button"
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
-      {pointDirectionMode && (
+    <>
+      <div className="studio-monitor-head">
+        <span className="studio-monitor-live" data-playing={playing || undefined}>
+          <i />
+          {playing ? "Play" : "Cam"}
+        </span>
+        <span className="studio-mono hide-compact">{formatTime(frame, fps, unit)}</span>
+        <span className="flex-1" />
         <button
           type="button"
-          data-change-direction-target="true"
-          onClick={onChooseDirectionTarget}
-          className="studio-property-button mt-2 inline-flex items-center gap-1"
+          aria-label={expanded ? "Shrink camera view" : "Enlarge camera view"}
+          title={expanded ? "Shrink (Esc)" : "Enlarge"}
+          onClick={onToggleExpanded}
         >
-          <Crosshair className="h-3 w-3" />
-          {hasDirectionTarget ? "Target" : "Pick target"}
+          {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
         </button>
+      </div>
+      <div className="studio-monitor-thirds" aria-hidden />
+      {fill && (
+        <span className="studio-monitor-badge hide-compact">
+          <i />
+          Unseen areas are generated
+        </span>
       )}
-      {selectedPart && (
-        <div className="mt-3 border-t border-slate-200 pt-2">
-          <div className="flex items-center justify-between text-[10px] text-slate-500">
-            <span>Part {selectedPart.number}</span>
-            {selectedPart.hasLookAtTarget && (
-              <button
-                type="button"
-                title="Remove part target"
-                onClick={() => onRemovePartDirectionTarget(selectedPart.id)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            className="studio-property-button mt-1"
-            onClick={() => {
-              if (
-                !selectedPart.hasLookAtTarget &&
-                directionMode === "look_at" &&
-                hasDirectionTarget
-              )
-                onLimitDirectionTargetToPart(selectedPart.id);
-              else onChoosePartDirectionTarget(selectedPart.id);
-            }}
-          >
-            {selectedPart.hasLookAtTarget
-              ? "Part target · change"
-              : "Set part target"}
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function CameraPositionInput({
-  axis,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  axis: string;
-  value: number;
-  min?: number;
-  max?: number;
-  onChange: (value: number) => void;
-}) {
-  const dragValue = useRef<{
-    x: number;
-    value: number;
-    startValue: number;
-    pointerId: number;
-  } | null>(null);
-  const cancel = useRef(false);
-  const dirty = useRef(false);
-  const [draft, setDraft] = useState(String(Number(value.toFixed(3))));
-  useEffect(() => {
-    setDraft(String(Number(value.toFixed(3))));
-    dirty.current = false;
-  }, [value]);
-  function commit() {
-    if (cancel.current) {
-      cancel.current = false;
-      dirty.current = false;
-      return;
-    }
-    if (!dirty.current) return;
-    dirty.current = false;
-    const parsed = Number(draft);
-    if (!draft.trim() || !Number.isFinite(parsed)) {
-      setDraft(String(Number(value.toFixed(3))));
-      return;
-    }
-    const next = THREE.MathUtils.clamp(
-      parsed,
-      min ?? -Infinity,
-      max ?? Infinity,
-    );
-    setDraft(String(next));
-    if (next !== value) onChange(next);
-  }
-  return (
-    <label className="text-[10px] font-medium text-[#727b88]">
-      <span
-        className="studio-scrub-label"
-        title={`Drag ${axis} to adjust; Shift for fine increments`}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          event.preventDefault();
-          event.currentTarget.parentElement?.querySelector("input")?.focus();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          dragValue.current = {
-            x: event.clientX,
-            value,
-            startValue: value,
-            pointerId: event.pointerId,
-          };
-        }}
-        onPointerMove={(event) => {
-          const active = dragValue.current;
-          if (!active || active.pointerId !== event.pointerId) return;
-          const step = axis === "Yaw" || axis === "Pitch" ? 0.5 : 0.01;
-          const next = scrubNumber(
-            active.value,
-            event.clientX - active.x,
-            step,
-            event.shiftKey,
-            min,
-            max,
-          );
-          active.x = event.clientX;
-          active.value = next;
-          onChange(Number(next.toFixed(3)));
-        }}
-        onPointerUp={(event) => {
-          dragValue.current = null;
-          if (event.currentTarget.hasPointerCapture(event.pointerId))
-            event.currentTarget.releasePointerCapture(event.pointerId);
-        }}
-        onPointerCancel={() => {
-          const active = dragValue.current;
-          dragValue.current = null;
-          if (active) onChange(active.startValue);
-        }}
-        onLostPointerCapture={() => {
-          dragValue.current = null;
-        }}
-      >
-        {axis}
-      </span>
-      <input
-        aria-label={`Camera position ${axis}`}
-        type="number"
-        step="0.01"
-        min={min}
-        max={max}
-        value={draft}
-        onChange={(event) => {
-          dirty.current = true;
-          setDraft(event.target.value);
-        }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-          if (event.key === "Escape") {
-            cancel.current = true;
-            setDraft(String(Number(value.toFixed(3))));
-            event.currentTarget.blur();
-          }
-        }}
-        className="mt-1 h-8 w-full rounded-md border border-[#202733]/15 bg-white px-2 text-xs text-[#202733]"
-      />
-    </label>
-  );
-}
-
-function CameraAimButton({
-  label,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="h-8 rounded-md border border-[#202733]/15 bg-[#202733]/[0.05] px-2 text-[11px] font-medium text-[#202733]/60 transition hover:border-[#202733]/30 hover:bg-[#202733]/[0.08] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-30"
-    >
-      {label}
-    </button>
+      <div className="studio-monitor-progress" aria-hidden>
+        <i style={{ width: `${(frame / Math.max(1, frameCount - 1)) * 100}%` }} />
+      </div>
+    </>
   );
 }
 
@@ -2871,746 +1844,6 @@ function buildTrajectoryMap(pose: PosedView): TrajectoryMap {
   };
 }
 
-function TrajectoryDrawPad({
-  points,
-  colors,
-  referencePosition,
-  segments,
-  selectedSegmentId,
-  path,
-  view,
-  space,
-  previewing,
-  addingPivot,
-  closedLoop,
-  allowBelowFloor,
-  disabled,
-  onChange,
-  onComplete,
-  onSelectPart,
-  onDeletePart,
-  onApplyShape,
-  onSmooth,
-  onTogglePivot,
-  onCloseLoop,
-  onAllowBelowFloorChange,
-  onClear,
-  onPlay,
-}: {
-  points: readonly TrajectoryPoint[];
-  colors: readonly string[];
-  referencePosition: TrajectoryPoint;
-  segments: readonly TrajectorySegment[];
-  selectedSegmentId: string | null;
-  path: readonly TrajectoryPoint[];
-  view: TrajectoryDrawingView;
-  space: TrajectorySpace;
-  previewing: boolean;
-  addingPivot: boolean;
-  closedLoop: boolean;
-  allowBelowFloor: boolean;
-  disabled: boolean;
-  onChange: (segments: TrajectorySegment[]) => void;
-  onComplete: (segments: TrajectorySegment[]) => void;
-  onSelectPart: (id: string) => void;
-  onDeletePart: (id: string) => void;
-  onApplyShape: (shape: TrajectoryShape, segmentId: string | null) => void;
-  onSmooth: () => void;
-  onTogglePivot: () => void;
-  onCloseLoop: () => void;
-  onAllowBelowFloorChange: (allowBelowFloor: boolean) => void;
-  onClear: () => void;
-  onPlay: () => void;
-}) {
-  const [frozenView, setFrozenView] = useState<TrajectoryDrawingView | null>(
-    null,
-  );
-  const [frozenSpace, setFrozenSpace] = useState<TrajectorySpace | null>(null);
-  const [shapeScope, setShapeScope] = useState<"selected" | "whole">(
-    "selected",
-  );
-  const draft = useRef<DrawPoint[]>([]);
-  const draftDistance = useRef(0);
-  const previousSegments = useRef<TrajectorySegment[]>([]);
-  const previousPath = useRef<TrajectoryPoint[]>([]);
-  const publishedSegments = useRef<TrajectorySegment[]>([]);
-  const published = useRef(false);
-  const pointerId = useRef<number | null>(null);
-  const pointerOrigin = useRef<DrawPoint>([0, 0]);
-  const screenOrigin = useRef<DrawPoint>([0, 0]);
-  const activePartId = useRef("");
-  const nextPartId = useRef(1);
-  const strokeView = useRef<TrajectoryDrawingView>(view);
-  const strokeSpace = useRef<TrajectorySpace>(space);
-  const strokeFloorBoundary = useRef<[DrawPoint, DrawPoint] | null>(null);
-  const displayView = frozenView ?? view;
-  const drawingSpace = useMemo(
-    () =>
-      frameTrajectorySpaceAboveFloor(
-        space,
-        displayView,
-        path.at(-1) ?? referencePosition,
-        allowBelowFloor,
-      ),
-    [allowBelowFloor, displayView, path, referencePosition, space],
-  );
-  const displaySpace = frozenSpace ?? drawingSpace;
-  const selectedPartIndex = segments.findIndex(
-    (segment) => segment.id === selectedSegmentId,
-  );
-  const effectiveShapeScope =
-    shapeScope === "selected" && selectedPartIndex >= 0 ? "selected" : "whole";
-  const shapePointCount =
-    effectiveShapeScope === "selected"
-      ? segments[selectedPartIndex]!.points.length
-      : path.length;
-
-  const projectedPoints = useMemo(
-    () =>
-      points
-        .map((point, index) => ({
-          position: projectTrajectoryPoint(point, displayView, displaySpace),
-          color: colors[index],
-        }))
-        .filter(({ position: [x, y] }) => x >= 0 && x <= 1 && y >= 0 && y <= 1),
-    [displaySpace, displayView, points, colors],
-  );
-  const referencePoint = projectTrajectoryPoint(
-    referencePosition,
-    displayView,
-    displaySpace,
-  );
-  const projectedPath = path.map((point) =>
-    projectTrajectoryPoint(point, displayView, displaySpace),
-  );
-  const displayedPath =
-    closedLoop && projectedPath.length >= 3
-      ? [...projectedPath, projectedPath[0]!]
-      : projectedPath;
-  const projectedPartEnds = segments.map((segment) =>
-    projectTrajectoryPoint(segment.points.at(-1)!, displayView, displaySpace),
-  );
-  const floorBoundary = trajectoryFloorBoundary(
-    displayView,
-    displaySpace,
-    path.at(-1) ?? referencePosition,
-  );
-
-  function pointerFromEvent(
-    event: ReactPointerEvent<SVGSVGElement>,
-  ): DrawPoint {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    return [
-      (event.clientX - bounds.left) / bounds.width,
-      (event.clientY - bounds.top) / bounds.height,
-    ];
-  }
-
-  function clampDrawPoint(
-    point: DrawPoint,
-    boundary: [DrawPoint, DrawPoint] | null,
-    drawingView: TrajectoryDrawingView,
-  ): DrawPoint {
-    const x = THREE.MathUtils.clamp(point[0], 0, 1);
-    let y = THREE.MathUtils.clamp(point[1], 0, 1);
-    if (boundary) {
-      const floorY = THREE.MathUtils.lerp(boundary[0][1], boundary[1][1], x);
-      y = drawingView.up[1] >= 0 ? Math.min(y, floorY) : Math.max(y, floorY);
-    }
-    return [x, THREE.MathUtils.clamp(y, 0, 1)];
-  }
-
-  function startPointer(event: ReactPointerEvent<SVGSVGElement>) {
-    if (
-      disabled ||
-      addingPivot ||
-      event.button !== 0 ||
-      pointerId.current !== null
-    )
-      return;
-    const pointer = pointerFromEvent(event);
-    startDrawing(event, pointer);
-  }
-
-  function startDrawing(
-    event: ReactPointerEvent<SVGSVGElement>,
-    pointer: DrawPoint,
-  ) {
-    const endpoint = projectedPath.at(-1);
-    const anchor = path.at(-1) ?? referencePosition;
-    const activeView = displayView;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    pointerId.current = event.pointerId;
-    previousSegments.current = [...segments];
-    previousPath.current = [...path];
-    publishedSegments.current = [...segments];
-    pointerOrigin.current = pointer;
-    strokeView.current = activeView;
-    strokeSpace.current = displaySpace;
-    strokeFloorBoundary.current = trajectoryFloorBoundary(
-      activeView,
-      displaySpace,
-      anchor,
-    );
-    if (allowBelowFloor) strokeFloorBoundary.current = null;
-    screenOrigin.current =
-      endpoint ??
-      clampDrawPoint(pointer, strokeFloorBoundary.current, activeView);
-    draft.current = [screenOrigin.current];
-    draftDistance.current = 0;
-    do {
-      activePartId.current = `part-${nextPartId.current++}`;
-    } while (segments.some((segment) => segment.id === activePartId.current));
-    published.current = false;
-    setFrozenView(activeView);
-    setFrozenSpace(displaySpace);
-  }
-
-  function continueDrawing(event: ReactPointerEvent<SVGSVGElement>) {
-    if (pointerId.current !== event.pointerId) return;
-    const pointer = pointerFromEvent(event);
-    const point = clampDrawPoint(
-      [
-        screenOrigin.current[0] + pointer[0] - pointerOrigin.current[0],
-        screenOrigin.current[1] + pointer[1] - pointerOrigin.current[1],
-      ],
-      strokeFloorBoundary.current,
-      strokeView.current,
-    );
-    const previous = draft.current.at(-1)!;
-    const segmentLength = Math.hypot(
-      point[0] - previous[0],
-      point[1] - previous[1],
-    );
-    if (segmentLength < 0.012) return;
-    draft.current = [...draft.current, point];
-    draftDistance.current += segmentLength;
-    if (draftDistance.current >= 0.02) {
-      const nextPath = appendDrawnTrajectory(
-        previousPath.current,
-        draft.current,
-        strokeView.current,
-        strokeSpace.current,
-        referencePosition,
-        allowBelowFloor,
-      );
-      const addedPoints = nextPath.slice(previousPath.current.length);
-      if (addedPoints.length === 0) return;
-      const partPoints = previousPath.current.length
-        ? [previousPath.current.at(-1)!, ...addedPoints]
-        : addedPoints;
-      const sharedQuaternion = previousSegments.current
-        .at(-1)
-        ?.quaternions?.at(-1);
-      const quaternions = sharedQuaternion
-        ? partPoints.map((_, index) => (index === 0 ? sharedQuaternion : null))
-        : undefined;
-      published.current = true;
-      publishedSegments.current = [
-        ...previousSegments.current,
-        { id: activePartId.current, points: partPoints, quaternions },
-      ];
-      onChange(publishedSegments.current);
-    }
-  }
-
-  function continuePointer(event: ReactPointerEvent<SVGSVGElement>) {
-    continueDrawing(event);
-  }
-
-  function finishPointer(event: ReactPointerEvent<SVGSVGElement>) {
-    if (pointerId.current !== event.pointerId) return;
-    pointerId.current = null;
-    if (published.current) onComplete(publishedSegments.current);
-    draft.current = [];
-    draftDistance.current = 0;
-    published.current = false;
-    setFrozenView(null);
-    setFrozenSpace(null);
-  }
-
-  function cancelPointer(event: ReactPointerEvent<SVGSVGElement>) {
-    if (pointerId.current !== event.pointerId) return;
-    pointerId.current = null;
-    if (published.current) onChange(previousSegments.current);
-    draft.current = [];
-    draftDistance.current = 0;
-    published.current = false;
-    setFrozenView(null);
-    setFrozenSpace(null);
-  }
-
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <h2 className="sr-only">Camera path</h2>
-        </div>
-      </div>
-
-      <p className="studio-path-instructions mb-2 text-[10px] leading-4 text-[#202733]/60">
-        {addingPivot
-          ? "Click the path in the main 3D view."
-          : "Draw a route. Each section gets equal video time."}
-      </p>
-
-      <div className="studio-path-map relative aspect-square overflow-hidden rounded-lg border border-[#202733]/15 bg-[#ffffff]">
-        <svg
-          viewBox="0 0 100 100"
-          role="application"
-          aria-label="Draw camera path from the current 3D view"
-          aria-disabled={disabled || addingPivot}
-          className={`h-full w-full touch-none cursor-crosshair select-none ${disabled || addingPivot ? "pointer-events-none opacity-40" : ""}`}
-          onPointerDown={startPointer}
-          onPointerMove={continuePointer}
-          onPointerUp={finishPointer}
-          onPointerCancel={cancelPointer}
-        >
-          {floorBoundary && (
-            <>
-              {!allowBelowFloor && (
-                <polygon
-                  points={
-                    displayView.up[1] >= 0
-                      ? `${floorBoundary[0][0] * 100},${floorBoundary[0][1] * 100} ${floorBoundary[1][0] * 100},${floorBoundary[1][1] * 100} 100,100 0,100`
-                      : `0,0 100,0 ${floorBoundary[1][0] * 100},${floorBoundary[1][1] * 100} ${floorBoundary[0][0] * 100},${floorBoundary[0][1] * 100}`
-                  }
-                  fill="rgba(100, 116, 139, 0.035)"
-                />
-              )}
-              <line
-                data-trajectory-floor="true"
-                x1={floorBoundary[0][0] * 100}
-                x2={floorBoundary[1][0] * 100}
-                y1={floorBoundary[0][1] * 100}
-                y2={floorBoundary[1][1] * 100}
-                stroke={
-                  allowBelowFloor
-                    ? "rgba(51, 65, 85, 0.55)"
-                    : "rgba(100, 116, 139, 0.8)"
-                }
-                strokeWidth="0.7"
-                strokeDasharray="2 1.5"
-              />
-              <text
-                x="97"
-                y={THREE.MathUtils.clamp(
-                  floorBoundary[1][1] * 100 - 1.5,
-                  4,
-                  96,
-                )}
-                textAnchor="end"
-                fill={
-                  allowBelowFloor
-                    ? "rgba(51, 65, 85, 0.8)"
-                    : "rgba(100, 116, 139, 0.85)"
-                }
-                fontSize="3.2"
-                fontWeight="600"
-              >
-                {allowBelowFloor
-                  ? "FLOOR - CROSSING ALLOWED"
-                  : "FLOOR - LOCKED"}
-              </text>
-            </>
-          )}
-          <path
-            d="M10 0V100M20 0V100M30 0V100M40 0V100M60 0V100M70 0V100M80 0V100M90 0V100M0 10H100M0 20H100M0 30H100M0 40H100M0 60H100M0 70H100M0 80H100M0 90H100"
-            stroke="#edf0f4"
-            strokeWidth="0.3"
-          />
-          <path d="M50 0V100M0 50H100" stroke="#d7dee8" strokeWidth="0.4" />
-          {projectedPoints.map(({ position: [x, y], color }, index) => (
-            <circle
-              key={index}
-              cx={x * 100}
-              cy={y * 100}
-              r="0.45"
-              fill={color}
-              opacity={0.8}
-            />
-          ))}
-          <circle
-            cx={referencePoint[0] * 100}
-            cy={referencePoint[1] * 100}
-            r="1.8"
-            fill="#64748b"
-            stroke="#ffffff"
-            strokeWidth="0.8"
-          />
-          {displayedPath.length >= 2 && (
-            <>
-              <polyline
-                points={displayedPath
-                  .map(([x, y]) => `${x * 100},${y * 100}`)
-                  .join(" ")}
-                fill="none"
-                stroke="#334155"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <circle
-                cx={projectedPath[0]![0] * 100}
-                cy={projectedPath[0]![1] * 100}
-                r="2.2"
-                fill="#202733"
-              />
-              <circle
-                cx={projectedPath.at(-1)![0] * 100}
-                cy={projectedPath.at(-1)![1] * 100}
-                r="2.2"
-                fill="#334155"
-              />
-              <circle
-                cx={projectedPath.at(-1)![0] * 100}
-                cy={projectedPath.at(-1)![1] * 100}
-                r="4.5"
-                fill="none"
-                stroke="rgba(51,65,85,0.7)"
-                strokeWidth="0.8"
-              />
-              {projectedPartEnds.map(([x, y], index) => (
-                <g key={segments[index]!.id} pointerEvents="none">
-                  <circle
-                    cx={x * 100}
-                    cy={y * 100}
-                    r="2.5"
-                    fill={index === segments.length - 1 ? "#334155" : "#ffffff"}
-                    stroke="#334155"
-                    strokeWidth="0.7"
-                  />
-                  <text
-                    x={x * 100}
-                    y={y * 100 + 1}
-                    textAnchor="middle"
-                    fill={index === segments.length - 1 ? "#202733" : "#202733"}
-                    fontSize="2.8"
-                    fontWeight="700"
-                  >
-                    {index + 1}
-                  </text>
-                </g>
-              ))}
-            </>
-          )}
-        </svg>
-
-        {path.length < 2 && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="rounded-md border border-[#202733]/20 bg-[#ffffff]/85 px-3 py-2 text-xs font-semibold text-[#202733] shadow-md">
-              Draw a path
-            </span>
-          </div>
-        )}
-      </div>
-
-      <details className="mt-2 rounded-lg border border-[#202733]/10 bg-white p-2">
-        <summary className="cursor-pointer text-[10px] font-medium text-[#727b88]">
-          Floor settings
-        </summary>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={allowBelowFloor}
-          data-allow-below-floor={allowBelowFloor}
-          disabled={disabled}
-          onClick={() => onAllowBelowFloorChange(!allowBelowFloor)}
-          className={`mb-2 flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] disabled:opacity-30 ${
-            allowBelowFloor
-              ? "border-[#334155]/45 bg-[#334155]/10"
-              : "border-[#202733]/10 bg-[#202733]/[0.025] hover:border-[#202733]/20 hover:bg-[#202733]/[0.05]"
-          }`}
-        >
-          <span>
-            <span className="block text-[11px] font-semibold text-[#202733]/80">
-              Allow below floor
-            </span>
-            <span className="mt-0.5 block text-[9px] leading-3.5 text-[#202733]/60">
-              Turn on for underwater or underground shots.
-            </span>
-          </span>
-          <span
-            aria-hidden="true"
-            className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-              allowBelowFloor ? "bg-[#334155]" : "bg-[#202733]/15"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                allowBelowFloor ? "translate-x-[1.125rem]" : "translate-x-0.5"
-              }`}
-            />
-          </span>
-        </button>
-      </details>
-
-      <button
-        type="button"
-        disabled={path.length < 2}
-        onClick={onTogglePivot}
-        className={`mt-2 flex h-10 w-full items-center justify-center gap-2 rounded border text-xs font-semibold transition disabled:opacity-25 ${
-          addingPivot
-            ? "border-[#334155] bg-[#334155] text-white"
-            : "border-[#334155]/40 bg-[#334155]/10 text-[#1e293b] hover:bg-[#334155]/20"
-        }`}
-      >
-        <Plus className="h-3.5 w-3.5" />
-        {addingPivot ? "Click the teal path in 3D" : "Add pivot on path"}
-      </button>
-
-      <button
-        type="button"
-        onClick={onSmooth}
-        disabled={disabled || addingPivot || path.length < 3}
-        title="Soften bends in the camera path while keeping camera aim and timing"
-        className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded border border-[#202733]/15 bg-[#202733]/[0.04] text-xs font-semibold text-[#202733]/65 transition hover:border-[#334155]/45 hover:bg-[#334155]/10 hover:text-[#202733] disabled:opacity-35"
-      >
-        <Sparkles className="h-3.5 w-3.5" />
-        Smooth path
-      </button>
-      <button
-        type="button"
-        data-close-camera-loop="true"
-        disabled={disabled || addingPivot || path.length < 3 || closedLoop}
-        onClick={onCloseLoop}
-        className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded border border-[#202733]/15 bg-[#202733]/[0.04] text-xs font-semibold text-[#202733]/65 transition hover:border-[#334155]/45 hover:bg-[#334155]/10 hover:text-[#202733] disabled:opacity-35"
-      >
-        <Rotate3D className="h-3.5 w-3.5" />
-        {closedLoop ? "Loop closed" : "Close loop"}
-      </button>
-
-      {segments.length > 0 && (
-        <div className="mt-2 flex items-center gap-2">
-          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-[#202733]/55">
-            Parts
-          </span>
-          <div className="min-w-0 flex-1 overflow-x-auto">
-            <div className="flex w-max gap-1">
-              {segments.map((segment, index) => (
-                <div
-                  key={segment.id}
-                  className={`flex h-7 overflow-hidden rounded border text-[10px] font-semibold transition ${
-                    segment.id === selectedSegmentId
-                      ? "border-[#334155]/60 bg-[#334155]/15 text-[#202733]"
-                      : "border-[#202733]/15 bg-[#202733]/[0.04] text-[#202733]/65"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onSelectPart(segment.id)}
-                    className="px-2 transition hover:bg-[#202733]/10 disabled:opacity-30"
-                    aria-label={`Edit path part ${index + 1}`}
-                  >
-                    {index + 1}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onDeletePart(segment.id)}
-                    aria-label={`Delete path part ${index + 1}`}
-                    className="border-l border-current/15 px-1.5 transition hover:bg-red-400/15 hover:text-red-800 disabled:opacity-30"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {path.length >= 2 && (
-        <details
-          data-path-shape-panel="true"
-          className="group mt-2 rounded-lg border border-[#202733]/15 bg-[#202733]/[0.025]"
-        >
-          <summary className="flex h-9 cursor-pointer list-none items-center justify-between px-2.5 text-xs font-semibold text-[#202733]/65 transition hover:bg-[#202733]/[0.05] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#334155] [&::-webkit-details-marker]:hidden">
-            <span>Shape path</span>
-            <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" />
-          </summary>
-          <div className="border-t border-[#202733]/10 p-2.5">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#202733]/55">
-              Apply to
-            </p>
-            <div
-              role="group"
-              aria-label="Apply path shape to"
-              className="mt-1.5 grid grid-cols-2 gap-1.5"
-            >
-              <button
-                type="button"
-                data-path-shape-scope="selected"
-                aria-pressed={effectiveShapeScope === "selected"}
-                disabled={selectedPartIndex < 0}
-                onClick={() => setShapeScope("selected")}
-                className={`h-8 rounded-md border px-2 text-[10px] font-semibold transition disabled:opacity-30 ${
-                  effectiveShapeScope === "selected"
-                    ? "border-[#334155] bg-[#334155] text-white"
-                    : "border-[#202733]/15 text-[#202733]/55 hover:border-[#202733]/30 hover:text-[#202733]"
-                }`}
-              >
-                {selectedPartIndex >= 0
-                  ? `Selected part ${selectedPartIndex + 1}`
-                  : "Selected part"}
-              </button>
-              <button
-                type="button"
-                data-path-shape-scope="whole"
-                aria-pressed={effectiveShapeScope === "whole"}
-                onClick={() => setShapeScope("whole")}
-                className={`h-8 rounded-md border px-2 text-[10px] font-semibold transition ${
-                  effectiveShapeScope === "whole"
-                    ? "border-[#334155] bg-[#334155] text-white"
-                    : "border-[#202733]/15 text-[#202733]/55 hover:border-[#202733]/30 hover:text-[#202733]"
-                }`}
-              >
-                Whole path
-              </button>
-            </div>
-            <div className="mt-2 grid grid-cols-3 gap-1.5">
-              {(
-                [
-                  ["straighten", "Straighten"],
-                  ["circular", "Make circular"],
-                  ["flatten", "Flatten"],
-                ] as const
-              ).map(([shape, label]) => (
-                <button
-                  key={shape}
-                  type="button"
-                  data-path-shape-action={shape}
-                  disabled={
-                    disabled ||
-                    addingPivot ||
-                    shapePointCount < 3 ||
-                    (shape === "straighten" &&
-                      effectiveShapeScope === "whole" &&
-                      closedLoop)
-                  }
-                  title={
-                    shape === "straighten"
-                      ? "Place pivots evenly on a line between the endpoints"
-                      : shape === "circular"
-                        ? "Arrange pivots on a circular arc; closed loops become a full circle"
-                        : "Place pivots on the plane facing the current 3D view"
-                  }
-                  onClick={() =>
-                    onApplyShape(
-                      shape,
-                      effectiveShapeScope === "selected"
-                        ? selectedSegmentId
-                        : null,
-                    )
-                  }
-                  className="min-h-9 rounded-md border border-[#202733]/15 bg-[#202733]/[0.04] px-1.5 text-[10px] font-semibold leading-3 text-[#202733]/60 transition hover:border-[#334155]/45 hover:bg-[#334155]/10 hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] disabled:cursor-not-allowed disabled:opacity-25"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-[9px] leading-3.5 text-[#202733]/55">
-              Circular and Flatten use the current 3D view. Camera aim and
-              timing stay unchanged.
-            </p>
-          </div>
-        </details>
-      )}
-
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          disabled={disabled || path.length === 0}
-          onClick={onClear}
-          className="flex h-9 items-center justify-center gap-1.5 rounded border border-[#202733]/15 text-xs font-semibold text-[#202733]/60 transition hover:bg-[#202733]/10 hover:text-[#202733] disabled:opacity-25"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Clear path
-        </button>
-        <button
-          type="button"
-          disabled={path.length < 2}
-          onClick={onPlay}
-          className="flex h-9 items-center justify-center gap-1.5 rounded bg-[#334155] text-xs font-semibold text-white transition hover:bg-[#1e293b] disabled:opacity-25"
-        >
-          {previewing ? (
-            <Pause className="h-3.5 w-3.5" />
-          ) : (
-            <Play className="h-3.5 w-3.5" />
-          )}
-          {previewing ? "Stop" : "Play path"}
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function OutputNumberInput({
-  label,
-  value,
-  min,
-  max,
-  step = 1,
-  title,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  title?: string;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-
-  useEffect(() => setDraft(String(value)), [value]);
-
-  function commit() {
-    const parsed = Number(draft);
-    const precision = Math.max(0, (String(step).split(".")[1] ?? "").length);
-    const rounded = Number(
-      (Math.round(parsed / step) * step).toFixed(precision),
-    );
-    const nextValue =
-      draft && Number.isFinite(parsed)
-        ? THREE.MathUtils.clamp(rounded, min, max)
-        : value;
-    setDraft(String(nextValue));
-    if (nextValue !== value) onChange(nextValue);
-  }
-
-  return (
-    <label className="w-20 shrink-0" title={title}>
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#202733]/60">
-        {label}
-      </span>
-      <input
-        type="text"
-        inputMode={step < 1 ? "decimal" : "numeric"}
-        value={draft}
-        disabled={disabled}
-        onChange={(event) => {
-          const pattern = step < 1 ? /^\d*\.?\d*$/ : /^\d*$/;
-          if (pattern.test(event.target.value)) setDraft(event.target.value);
-        }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-          if (event.key === "Escape") {
-            setDraft(String(value));
-            event.currentTarget.blur();
-          }
-        }}
-        className="h-11 w-full rounded-md border border-[#202733]/15 bg-[#202733]/[0.06] px-3 text-sm font-semibold text-[#202733] outline-none transition hover:border-[#202733]/25 focus:border-[#334155] focus:ring-2 focus:ring-[#334155]/20 disabled:opacity-40"
-      />
-    </label>
-  );
-}
-
 function UploadScreen({
   previewUrl,
   posing,
@@ -3634,109 +1867,89 @@ function UploadScreen({
   onHistory: () => void;
   onExample: () => void;
 }) {
+  const [dragging, setDragging] = useState(false);
   return (
-    <main className="relative grid h-full place-items-center px-5">
-      <button
-        type="button"
-        onClick={onHistory}
-        className="absolute right-4 top-4 flex h-10 items-center gap-2 rounded-md border border-[#202733]/15 px-3 text-sm text-[#202733]/60 transition hover:bg-[#202733]/[0.06] hover:text-[#202733]"
-      >
+    <main className="studio-start">
+      <button type="button" onClick={onHistory} className="studio-button studio-start-saved">
         <HistoryIcon className="h-4 w-4" />
         Saved
       </button>
-      <div className="w-full max-w-xl">
+      <div className="studio-start-inner">
         {onResume ? (
-          <button
-            type="button"
-            onClick={onResume}
-            className="mb-7 flex h-11 max-w-full items-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-black transition hover:bg-[#ffffff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] focus-visible:ring-offset-2 focus-visible:ring-offset-[#ffffff] active:translate-y-px"
-          >
+          <button type="button" onClick={onResume} className="studio-button studio-start-resume">
             <ArrowLeft className="h-4 w-4 shrink-0" />
-            <span className="truncate">Continue {activeSceneName}</span>
+            <span className="truncate">Back to {activeSceneName}</span>
           </button>
         ) : (
-          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#202733]/60">
-            Start a scene
-          </p>
+          <p className="studio-start-eyebrow">Atlas Camera Studio</p>
         )}
-        <h1 className="mt-4 max-w-lg text-4xl font-medium tracking-[-0.055em] sm:text-5xl">
-          {onResume ? "Start another scene." : "Plan a camera move."}
+        <h1>
+          {onResume ? (
+            "Start another scene."
+          ) : (
+            <>
+              One image. <em>Any camera move.</em>
+            </>
+          )}
         </h1>
-        <p className="mt-4 max-w-md text-base leading-6 text-[#202733]/55">
+        <p className="studio-start-lede">
           {onResume
-            ? "Your current scene is still open. Choosing another image replaces it in the editor."
-            : "Upload an image, choose a camera path, and preview the shot."}
+            ? "Your current scene stays open until you choose another image."
+            : "Upload a photo, set a few keyframes, and Atlas generates the shot, filling in everything the photo never saw."}
         </p>
 
         <button
           type="button"
           disabled={posing}
           onClick={onChoose}
-          onDragOver={(event) => event.preventDefault()}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
           onDrop={(event) => {
             event.preventDefault();
+            setDragging(false);
             const file = event.dataTransfer.files[0];
             if (file) onDrop(file);
           }}
-          className="group relative mt-9 flex h-56 rounded-2xl w-full items-center justify-center overflow-hidden border border-dashed border-[#202733]/25 bg-[#202733]/[0.03] text-left transition hover:border-[#202733]/50 hover:bg-[#202733]/[0.05] disabled:cursor-wait"
+          data-dragging={dragging || undefined}
+          className="studio-dropzone"
         >
-          {previewUrl ? (
-            <>
-              <img
-                src={previewUrl}
-                alt="Selected reference image"
-                className="absolute inset-0 h-full w-full object-cover opacity-40"
-              />
-              <div className="absolute inset-0 bg-[#ffffff]/70" />
-            </>
-          ) : null}
-          <div className="relative flex flex-col items-center text-center">
+          {previewUrl && posing && <img src={previewUrl} alt="" />}
+          <span className="studio-dropzone-content">
             {posing ? (
               <>
-                <Loader2 className="h-7 w-7 animate-spin text-[#202733]/80" />
-                <span className="mt-4 text-sm font-medium">
-                  Preparing the 3D view
-                </span>
-                <span className="mt-1 text-xs text-[#202733]/60">
-                  {Math.max(1, Math.round(poseElapsed / 1000))}s
-                </span>
+                <Loader2 className="h-7 w-7 animate-spin" />
+                <strong>Preparing the 3D scene</strong>
+                <small>{Math.max(1, Math.round(poseElapsed / 1000))}s</small>
               </>
             ) : (
               <>
-                <Upload className="h-7 w-7 text-[#202733]/60 transition group-hover:text-[#202733]" />
-                <span className="mt-4 text-sm font-medium">
-                  Choose an image
+                <span className="studio-dropzone-icon">
+                  <Upload className="h-5 w-5" />
                 </span>
-                <span className="mt-1 text-xs text-[#202733]/60">
-                  or drop / paste (Ctrl/⌘+V)
-                </span>
+                <strong>Choose an image</strong>
+                <small>or drop or paste one (Ctrl/⌘+V) · JPG, PNG, or WebP</small>
               </>
             )}
-          </div>
+          </span>
         </button>
 
         <button
           type="button"
           disabled={posing}
           onClick={onExample}
-          className="mt-4 flex w-full items-center gap-4 rounded-md border border-[#334155]/30 bg-[#334155]/10 p-3 text-left transition hover:bg-[#334155]/20 disabled:opacity-50"
+          className="studio-example"
         >
-          <img
-            src={EXAMPLE_IMAGE}
-            alt="Igloo example"
-            className="h-16 w-24 rounded object-cover"
-          />
+          <img src={EXAMPLE_IMAGE} alt="" />
           <span>
-            <span className="block text-sm font-semibold text-[#202733]">
-              Open example
-            </span>
-            <span className="mt-1 block text-xs text-[#202733]/60">
-              Try the editor with a sample scene. No account needed.
-            </span>
+            <strong>Open the igloo example</strong>
+            <small>Try the editor with a sample scene. No account needed.</small>
           </span>
-          <Play className="ml-auto h-5 w-5 shrink-0 text-[#334155]" />
+          <Play className="h-4 w-4 shrink-0" fill="currentColor" />
         </button>
-        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+        {error && <p className="studio-start-error">{error}</p>}
       </div>
     </main>
   );
@@ -3877,13 +2090,13 @@ function HistoryPanel({
   if (!open) return null;
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-[70] flex w-[min(28rem,100%)] flex-col border-l border-[#202733]/15 bg-[#ffffff]/98 shadow-sm ">
+    <aside className="fixed inset-y-0 right-0 z-[70] flex w-[min(28rem,100%)] flex-col border-l border-[var(--ink)]/15 bg-[var(--panel)]/98 shadow-sm ">
       <div className="flex items-center justify-between px-5 pb-3 pt-4">
         <div>
           <h2 className="text-lg font-semibold tracking-[-0.025em]">
             Saved scenes
           </h2>
-          <p className="mt-0.5 text-xs text-[#202733]/60">
+          <p className="mt-0.5 text-xs text-[var(--ink)]/60">
             Drafts stay in this browser. Videos expire after 7 days.
           </p>
         </div>
@@ -3891,7 +2104,7 @@ function HistoryPanel({
           type="button"
           onClick={onClose}
           aria-label="Close saved scenes"
-          className="grid h-9 w-9 place-items-center rounded-md text-[#202733]/50 transition hover:bg-[#202733]/10 hover:text-[#202733]"
+          className="grid h-9 w-9 place-items-center rounded-md text-[var(--ink)]/50 transition hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
         >
           <X className="h-4 w-4" />
         </button>
@@ -3900,7 +2113,7 @@ function HistoryPanel({
       <div
         role="tablist"
         aria-label="Saved scene views"
-        className="grid grid-cols-3 gap-1 border-b border-[#202733]/10 px-3 pb-3"
+        className="grid grid-cols-3 gap-1 border-b border-[var(--ink)]/10 px-3 pb-3"
       >
         <HistoryTabButton
           active={activeTab === "favorites"}
@@ -3932,17 +2145,17 @@ function HistoryPanel({
         {activeTab === "favorites" &&
           (history.isLoading && drafts.isLoading && favoriteCount === 0 ? (
             <div className="grid h-24 place-items-center">
-              <Loader2 className="h-4 w-4 animate-spin text-[#202733]/60" />
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--ink)]/60" />
             </div>
           ) : favoriteCount === 0 ? (
-            <p className="rounded-lg border border-dashed border-[#202733]/10 px-3 py-8 text-center text-xs text-[#202733]/55">
+            <p className="rounded-lg border border-dashed border-[var(--ink)]/10 px-3 py-8 text-center text-xs text-[var(--ink)]/55">
               Star a video or path to keep it here.
             </p>
           ) : (
             <div className="space-y-5">
               {favoriteItems.length > 0 && (
                 <section>
-                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#202733]/60">
+                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--ink)]/60">
                     Videos
                   </h3>
                   <div className="space-y-2">
@@ -3965,7 +2178,7 @@ function HistoryPanel({
               )}
               {favoriteDraftItems.length > 0 && (
                 <section>
-                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#202733]/60">
+                  <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--ink)]/60">
                     Paths
                   </h3>
                   <div className="space-y-2">
@@ -3989,7 +2202,7 @@ function HistoryPanel({
         {activeTab === "generations" &&
           (history.isLoading && sortedItems.length === 0 ? (
             <div className="grid h-24 place-items-center">
-              <Loader2 className="h-4 w-4 animate-spin text-[#202733]/60" />
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--ink)]/60" />
             </div>
           ) : history.error && sortedItems.length === 0 ? (
             <p className="rounded-md border border-red-400/20 bg-red-50 p-3 text-sm text-red-700">
@@ -4000,7 +2213,7 @@ function HistoryPanel({
           ) : sortedItems.length > 0 ? (
             <div className="space-y-2">
               {history.isLoading && (
-                <p className="flex items-center gap-2 rounded-md border border-[#202733]/10 bg-[#202733]/[0.04] px-3 py-2 text-xs text-[#202733]/55">
+                <p className="flex items-center gap-2 rounded-md border border-[var(--ink)]/10 bg-[var(--ink)]/[0.04] px-3 py-2 text-xs text-[var(--ink)]/55">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Loading earlier generations…
                 </p>
@@ -4020,7 +2233,7 @@ function HistoryPanel({
               ))}
             </div>
           ) : (
-            <p className="rounded-lg border border-dashed border-[#202733]/10 px-3 py-8 text-center text-xs text-[#202733]/55">
+            <p className="rounded-lg border border-dashed border-[var(--ink)]/10 px-3 py-8 text-center text-xs text-[var(--ink)]/55">
               Generated versions will appear here.
             </p>
           ))}
@@ -4028,7 +2241,7 @@ function HistoryPanel({
         {activeTab === "drafts" &&
           (drafts.isLoading && sortedDraftItems.length === 0 ? (
             <div className="grid h-24 place-items-center">
-              <Loader2 className="h-4 w-4 animate-spin text-[#202733]/60" />
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--ink)]/60" />
             </div>
           ) : drafts.error && sortedDraftItems.length === 0 ? (
             <p className="rounded-md border border-red-400/20 bg-red-50 p-3 text-sm text-red-700">
@@ -4049,7 +2262,7 @@ function HistoryPanel({
               ))}
             </div>
           ) : (
-            <p className="rounded-lg border border-dashed border-[#202733]/10 px-3 py-8 text-center text-xs text-[#202733]/55">
+            <p className="rounded-lg border border-dashed border-[var(--ink)]/10 px-3 py-8 text-center text-xs text-[var(--ink)]/55">
               Generate or save a draft to keep the editable scene here.
             </p>
           ))}
@@ -4075,18 +2288,18 @@ function HistoryTabButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/70 ${
+      className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ink)]/70 ${
         active
-          ? "bg-white text-[#202733]"
-          : "text-[#202733]/50 hover:bg-[#202733]/[0.06] hover:text-[#202733]"
+          ? "bg-[var(--panel)] text-[var(--ink)]"
+          : "text-[var(--ink)]/50 hover:bg-[var(--ink)]/[0.06] hover:text-[var(--ink)]"
       }`}
     >
       <span className="truncate">{label}</span>
       <span
         className={`rounded-full px-1.5 py-0.5 text-[9px] tabular-nums ${
           active
-            ? "bg-[#202733]/10 text-black/55"
-            : "bg-[#202733]/[0.07] text-[#202733]/60"
+            ? "bg-[var(--ink)]/10 text-[var(--ink)]/55"
+            : "bg-[var(--ink)]/[0.07] text-[var(--ink)]/60"
         }`}
       >
         {count}
@@ -4109,9 +2322,9 @@ function DraftItem({
   const [copied, setCopied] = useState(false);
 
   return (
-    <article className="rounded-lg border border-[#334155]/20 bg-[#334155]/[0.05] p-3">
+    <article className="rounded-lg border border-[var(--ink)]/20 bg-[var(--ink)]/[0.05] p-3">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] text-[#202733]/60">
+        <span className="text-[11px] text-[var(--ink)]/60">
           {new Intl.DateTimeFormat(undefined, {
             month: "short",
             day: "numeric",
@@ -4121,19 +2334,19 @@ function DraftItem({
         </span>
         <div className="flex items-center gap-2">
           <StarButton starred={draft.starred} label="path" onChange={onStar} />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#1e293b]">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ink)]">
             Draft
           </span>
         </div>
       </div>
-      <p className="mt-2 line-clamp-2 text-sm leading-5 text-[#202733]/85">
+      <p className="mt-2 line-clamp-2 text-sm leading-5 text-[var(--ink)]/85">
         {draft.prompt || "No prompt yet"}
       </p>
-      <p className="mt-2 text-xs text-[#202733]/55">
-        {draft.point_count} controls · {draft.frame_count} frames · {draft.fps}{" "}
+      <p className="mt-2 text-xs text-[var(--ink)]/55">
+        {draft.point_count} keys · {draft.frame_count} frames · {draft.fps}{" "}
         FPS · {draft.aspect_ratio}
       </p>
-      <code className="mt-2 block select-all truncate text-[10px] text-[#202733]/55">
+      <code className="mt-2 block select-all truncate text-[10px] text-[var(--ink)]/55">
         {draft.draft_id}
       </code>
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -4141,7 +2354,7 @@ function DraftItem({
           type="button"
           disabled={restoring}
           onClick={() => void onOpen(draft.draft_id)}
-          className="flex h-9 items-center justify-center gap-2 rounded-md bg-[#334155] text-xs font-semibold text-white transition hover:bg-[#1e293b] active:translate-y-px disabled:cursor-wait disabled:opacity-40"
+          className="flex h-9 items-center justify-center gap-2 rounded-md bg-[var(--ink)] text-xs font-semibold text-[var(--panel)] transition hover:opacity-90 active:translate-y-px disabled:cursor-wait disabled:opacity-40"
         >
           {restoring ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4158,7 +2371,7 @@ function DraftItem({
               .then(() => setCopied(true))
               .catch(() => setCopied(false));
           }}
-          className="flex h-9 items-center justify-center gap-2 rounded-md border border-[#202733]/15 text-xs font-semibold text-[#202733]/65 transition hover:border-[#202733]/30 hover:bg-[#202733]/[0.06] hover:text-[#202733] active:translate-y-px"
+          className="flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--ink)]/15 text-xs font-semibold text-[var(--ink)]/65 transition hover:border-[var(--ink)]/30 hover:bg-[var(--ink)]/[0.06] hover:text-[var(--ink)] active:translate-y-px"
         >
           <Copy className="h-3.5 w-3.5" />
           {copied ? "ID copied" : "Copy ID"}
@@ -4190,9 +2403,9 @@ function QueueItem({
   const detailsId = `generation-details-${item.iteration_id}`;
 
   return (
-    <article className="rounded-lg border border-[#202733]/10 bg-[#202733]/[0.03] p-3">
+    <article className="rounded-lg border border-[var(--ink)]/10 bg-[var(--ink)]/[0.03] p-3">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] text-[#202733]/60">
+        <span className="text-[11px] text-[var(--ink)]/60">
           {new Intl.DateTimeFormat(undefined, {
             month: "short",
             day: "numeric",
@@ -4208,7 +2421,7 @@ function QueueItem({
               onChange={onStarPath}
             />
           )}
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#1e293b]">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ink)]">
             {item.variants.length}{" "}
             {item.variants.length === 1 ? "video" : "videos"}
           </span>
@@ -4220,23 +2433,23 @@ function QueueItem({
         aria-controls={detailsId}
         aria-label={`${expanded ? "Collapse" : "Expand"} scene ${item.prompt}`}
         onClick={() => setExpanded((current) => !current)}
-        className="mt-1.5 flex w-full items-center gap-2 rounded-md px-1 py-2 text-left transition hover:bg-[#202733]/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155]/70 active:translate-y-px"
+        className="mt-1.5 flex w-full items-center gap-2 rounded-md px-1 py-2 text-left transition hover:bg-[var(--ink)]/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ink)]/70 active:translate-y-px"
       >
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-[#202733]/60 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`}
+          className={`h-4 w-4 shrink-0 text-[var(--ink)]/60 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`}
         />
-        <span className="line-clamp-2 text-sm leading-5 text-[#202733]/85">
+        <span className="line-clamp-2 text-sm leading-5 text-[var(--ink)]/85">
           {item.prompt}
         </span>
       </button>
       {expanded && (
         <div id={detailsId}>
-          <p className="mt-1 text-xs text-[#202733]/55">
+          <p className="mt-1 text-xs text-[var(--ink)]/55">
             {item.target_frame_count} frames · {item.fps} FPS ·{" "}
             {item.aspect_ratio}
           </p>
-          <div className="mt-2 flex items-center gap-2 rounded-md border border-[#202733]/10 bg-[#202733]/[0.04] px-2 py-1.5">
-            <code className="min-w-0 flex-1 select-all truncate text-[10px] text-[#202733]/60">
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-[var(--ink)]/10 bg-[var(--ink)]/[0.04] px-2 py-1.5">
+            <code className="min-w-0 flex-1 select-all truncate text-[10px] text-[var(--ink)]/60">
               {item.iteration_id}
             </code>
             <button
@@ -4247,7 +2460,7 @@ function QueueItem({
                   .then(() => setCopied(true))
                   .catch(() => setCopied(false));
               }}
-              className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-[#1e293b] transition hover:text-[#202733]"
+              className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-[var(--ink)] transition hover:text-[var(--ink)]"
             >
               <Copy className="h-3 w-3" />
               {copied ? "Copied" : "Copy iteration ID"}
@@ -4353,9 +2566,9 @@ function QueueVariant({
   });
 
   return (
-    <div className="rounded-md border border-[#202733]/10 bg-[#202733]/[0.04] p-2">
+    <div className="rounded-md border border-[var(--ink)]/10 bg-[var(--ink)]/[0.04] p-2">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-[#202733]/70">
+        <span className="text-xs font-medium text-[var(--ink)]/70">
           Seed {variant.seed ?? "unknown"} · {variant.aspect_ratio}
         </span>
         <div className="flex items-center gap-2">
@@ -4368,7 +2581,7 @@ function QueueVariant({
               setRemoveError(null);
               setConfirmingRemove(true);
             }}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[#202733]/10 text-[#202733]/55 transition hover:border-red-300/30 hover:bg-red-400/10 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 disabled:cursor-wait disabled:opacity-50"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[var(--ink)]/10 text-[var(--ink)]/55 transition hover:border-red-300/30 hover:bg-red-400/10 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 disabled:cursor-wait disabled:opacity-50"
           >
             {removing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4387,7 +2600,7 @@ function QueueVariant({
                 ? "text-emerald-700"
                 : failure
                   ? "text-red-700"
-                  : "text-[#64748b]"
+                  : "text-[var(--ink-3)]"
             }`}
           >
             {state}
@@ -4405,7 +2618,7 @@ function QueueVariant({
               type="button"
               disabled={removing}
               onClick={() => setConfirmingRemove(false)}
-              className="h-8 rounded-md px-3 text-xs font-semibold text-[#202733]/55 transition hover:bg-[#202733]/[0.06] hover:text-[#202733] disabled:opacity-40"
+              className="h-8 rounded-md px-3 text-xs font-semibold text-[var(--ink)]/55 transition hover:bg-[var(--ink)]/[0.06] hover:text-[var(--ink)] disabled:opacity-40"
             >
               Cancel
             </button>
@@ -4450,7 +2663,7 @@ function QueueVariant({
               href={videoUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex h-9 items-center justify-center gap-2 rounded-md border border-[#202733]/15 text-xs font-semibold text-[#202733]/70 transition hover:border-[#202733]/30 hover:bg-[#202733]/[0.06] hover:text-[#202733]"
+              className="flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--ink)]/15 text-xs font-semibold text-[var(--ink)]/70 transition hover:border-[var(--ink)]/30 hover:bg-[var(--ink)]/[0.06] hover:text-[var(--ink)]"
             >
               <Play className="h-3.5 w-3.5" />
               Open
@@ -4459,7 +2672,7 @@ function QueueVariant({
               href={videoUrl}
               download={downloadName}
               title={`Download ${downloadName}`}
-              className="flex h-9 items-center justify-center gap-2 rounded-md bg-white text-xs font-semibold text-black transition hover:bg-[#ffffff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334155] active:translate-y-px"
+              className="flex h-9 items-center justify-center gap-2 rounded-md bg-[var(--panel)] text-xs font-semibold text-[var(--ink)] transition hover:bg-[var(--panel)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ink)] active:translate-y-px"
             >
               <Download className="h-3.5 w-3.5" />
               Download
@@ -4493,10 +2706,10 @@ function StarButton({
         setSaving(true);
         void onChange(!starred).finally(() => setSaving(false));
       }}
-      className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#64748b]/70 disabled:cursor-wait disabled:opacity-50 ${
+      className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ink-3)]/70 disabled:cursor-wait disabled:opacity-50 ${
         starred
-          ? "border-[#64748b]/35 bg-[#64748b]/15 text-[#64748b] hover:bg-[#64748b]/25"
-          : "border-[#202733]/10 text-[#202733]/55 hover:border-[#202733]/25 hover:bg-[#202733]/[0.06] hover:text-[#202733]/70"
+          ? "border-[var(--ink-3)]/35 bg-[var(--ink-3)]/15 text-[var(--ink-3)] hover:bg-[var(--ink-3)]/25"
+          : "border-[var(--ink)]/10 text-[var(--ink)]/55 hover:border-[var(--ink)]/25 hover:bg-[var(--ink)]/[0.06] hover:text-[var(--ink)]/70"
       }`}
     >
       {saving ? (
@@ -4507,3 +2720,4 @@ function StarButton({
     </button>
   );
 }
+

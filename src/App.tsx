@@ -7,10 +7,13 @@ import {
   type ReactNode,
 } from "react";
 import { ClerkProvider, UserButton, useAuth, useClerk } from "@clerk/react";
+import { CircleHelp, Monitor, Moon, Sun } from "lucide-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CameraTrajectoryPage } from "./trajectory/Editor";
 import { authFetchJson, type GetToken } from "./trajectory/client";
 import type { Config } from "./types";
+import { useStudioTheme, type ThemePreference } from "./theme";
+import { WorldLabsMark, WorldLabsWordmark } from "./WorldLabsLogo";
 import "./styles.css";
 
 type Auth = {
@@ -147,20 +150,30 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
   };
   return (
     <div className="studio-shell">
-      <header className="studio-header flex shrink-0 flex-wrap items-center gap-3 px-3 text-xs md:px-4">
-        <span className="studio-brand font-semibold">
-          <span className="hidden sm:inline">Atlas Camera Studio</span>
-          <span className="sm:hidden">Atlas</span>
-        </span>
-        <div ref={setToolbarContainer} className="ml-auto" />
-        <details className="studio-help relative">
-          <summary className="cursor-pointer list-none rounded px-2 py-2 text-[#727b88] hover:text-[#202733]">
-            Help
-          </summary>
-          <nav
-            aria-label="Help links"
-            className="absolute right-0 top-full z-50 flex w-40 flex-col gap-3 rounded-lg border border-[#e5e9ef] bg-[#ffffff] p-4 shadow-sm"
+      <header className="studio-header">
+        <a
+          className="studio-brand"
+          href="/"
+          aria-label="Atlas Camera Studio by World Labs"
+        >
+          <WorldLabsWordmark className="studio-wordmark" />
+          <WorldLabsMark className="studio-mark" />
+          <span className="studio-brand-divider" aria-hidden />
+          <span className="studio-product">
+            Camera Studio<small>Atlas</small>
+          </span>
+        </a>
+        <div ref={setToolbarContainer} className="studio-header-tools" />
+        <ThemeButton />
+        <details className="studio-help">
+          <summary
+            className="studio-icon-button"
+            aria-label="Help"
+            title="Help"
           >
+            <CircleHelp className="h-4 w-4" />
+          </summary>
+          <nav aria-label="Help links">
             {config.repoUrl && (
               <a
                 href={config.repoUrl}
@@ -215,7 +228,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
                   value={packId}
                   onChange={(event) => setPackId(event.target.value)}
                   disabled={buying}
-                  className="studio-select rounded-lg px-2 py-1.5"
+                  className="studio-select px-2"
                 >
                   {config.creditPacks.map((pack) => (
                     <option key={pack.id} value={pack.id}>
@@ -224,7 +237,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
                   ))}
                 </select>
                 <button
-                  className="studio-outline-button rounded-lg px-3 py-1.5 disabled:opacity-50"
+                  className="studio-outline-button px-3 disabled:opacity-50"
                   disabled={buying}
                   onClick={() => void checkout()}
                 >
@@ -234,7 +247,7 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
               </>
             ) : (
               <button
-                className="studio-outline-button rounded-lg px-3 py-1.5"
+                className="studio-outline-button px-3"
                 onClick={auth.openSignIn}
               >
                 Sign in · 3 free generations
@@ -274,6 +287,33 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
     </div>
   );
 }
+const THEME_ORDER: ThemePreference[] = ["system", "light", "dark"];
+const THEME_LABELS: Record<ThemePreference, string> = {
+  system: "Theme: match device",
+  light: "Theme: light",
+  dark: "Theme: dark",
+};
+
+function ThemeButton() {
+  const { preference, setPreference } = useStudioTheme();
+  const Icon = preference === "light" ? Sun : preference === "dark" ? Moon : Monitor;
+  return (
+    <button
+      type="button"
+      className="studio-icon-button"
+      title={`${THEME_LABELS[preference]} (click to change)`}
+      aria-label={THEME_LABELS[preference]}
+      onClick={() =>
+        setPreference(
+          THEME_ORDER[(THEME_ORDER.indexOf(preference) + 1) % THEME_ORDER.length]!,
+        )
+      }
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
 function HostedStudio({ config }: { config: Config }) {
   const { isLoaded, isSignedIn, userId, getToken } = useAuth();
   const clerk = useClerk();
