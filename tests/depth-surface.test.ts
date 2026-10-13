@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { FloatType, RedFormat } from "three";
 import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
 import {
+  buildDepthSurface,
   triangulateDepthSurface,
   fillIsolatedDepthHoles,
   type DepthSurfaceGrid,
@@ -407,4 +408,138 @@ test("example depth retains measured surface coverage when viewed from above", (
   // area. Count geometry, not pixels, so this remains independent of WebGL.
   assert.ok(projectedArea > 19, `only ${projectedArea} square units remain`);
   assert.ok(indices.length / 3 > 440000);
+});
+
+function surfaceOf(
+  cols: number,
+  rows: number,
+  depthAtSample: (col: number, row: number) => Sample,
+  extra: { maxStretchDepthRatio?: number } = {},
+) {
+  const grid = buildGrid(cols, rows, depthAtSample);
+  return {
+    grid,
+    surface: buildDepthSurface(grid, {
+      stride: STRIDE,
+      fx: FX,
+      fy: FY,
+      ...extra,
+    }),
+  };
+}
+
+/** Grid cell of each triangle, keyed by its top-left grid corner. */
+function trianglesPerCell(
+  grid: DepthSurfaceGrid,
+  ...lists: Uint32Array[]
+): Map<number, number> {
+  const cellOf = cellOfVertex(grid);
+  const perCell = new Map<number, number>();
+  for (const list of lists)
+    for (let t = 0; t < list.length; t += 3) {
+      const cells = [0, 1, 2].map((k) => cellOf.get(list[t + k]!)!);
+      const col = Math.min(...cells.map((cell) => cell % grid.cols)),
+        row = Math.min(...cells.map((cell) => Math.floor(cell / grid.cols)));
+      const key = row * grid.cols + col;
+      perCell.set(key, (perCell.get(key) ?? 0) + 1);
+    }
+  return perCell;
+}
+
+test("stretched output leaves the textured triangulation unchanged", () => {
+  const shapes: ((col: number, row: number) => Sample)[] = [
+    () => 4,
+    (x) => (x < 4 ? 4 : 4.2),
+    (x) => (x < 5 ? 2 : 9),
+    (x, y) => (x === 4 && y === 4 ? 2 : 4),
+    (x, y) => ((x * 7 + y * 5) % 11 === 0 ? null : 2.5 + 0.01 * x),
+  ];
+  for (const shape of shapes) {
+    const { grid, surface } = surfaceOf(9, 9, shape);
+    assert.deepEqual(
+      surface.indices,
+      triangulateDepthSurface(grid, { stride: STRIDE, fx: FX, fy: FY }),
+    );
+  }
+});
+
+test("a supported plane has no stretched triangles", () => {
+  const { surface } = surfaceOf(8, 6, (x) => 4 + 0.0075 * x * STRIDE);
+  assert.equal(surface.stretchIndices.length, 0);
+});
+
+test("a moderate depth step is bridged only by stretched triangles", () => {
+  const cols = 9,
+    rows = 9;
+  const { grid, surface } = surfaceOf(cols, rows, (x) => (x < 4 ? 4 : 4.2));
+  const { stretchIndices } = surface;
+  // Exactly the column of cells across the step: two triangles per row.
+  assert.equal(stretchIndices.length, (rows - 1) * 2 * 3);
+  for (let t = 0; t < stretchIndices.length; t += 3) {
+    const sides = [0, 1, 2].map((k) => stretchIndices[t + k]! % cols < 4);
+    assert.ok(sides.includes(true) && sides.includes(false));
+  }
+  // Textured and stretched triangles tile the grid without overlapping.
+  const perCell = trianglesPerCell(grid, surface.indices, stretchIndices);
+  assert.equal(perCell.size, (cols - 1) * (rows - 1));
+  for (const count of perCell.values()) assert.equal(count, 2);
+});
+
+test("an isolated foreground sample keeps a stretched link to its background", () => {
+  const { grid, surface } = surfaceOf(9, 9, (x, y) =>
+    x === 4 && y === 4 ? 2 : 4,
+  );
+  const center = grid.vertexAt[4 * 9 + 4]!;
+  assert.ok(!new Set(surface.indices).has(center));
+  assert.ok(new Set(surface.stretchIndices).has(center));
+  const perCell = trianglesPerCell(grid, surface.indices, surface.stretchIndices);
+  for (const count of perCell.values()) assert.ok(count <= 2);
+});
+
+test("stretched triangles skip extreme depth ratios", () => {
+  // Foreground at 2 against a backdrop at 9: a ratio of 4.5 reads as sky
+  // or a distant wall, not as a surface continuing behind the subject.
+  const far = surfaceOf(10, 6, (x) => (x < 5 ? 2 : 9)).surface;
+  assert.equal(far.stretchIndices.length, 0);
+  const near = surfaceOf(10, 6, (x) => (x < 5 ? 2 : 5)).surface;
+  assert.equal(near.stretchIndices.length, 5 * 2 * 3);
+  const tight = surfaceOf(10, 6, (x) => (x < 5 ? 2 : 5), {
+    maxStretchDepthRatio: 2,
+  }).surface;
+  assert.equal(tight.stretchIndices.length, 0);
+});
+
+test("stretched triangles skip edges far beyond the sampled footprint", () => {
+  const cols = 6,
+    rows = 4;
+  const grid = buildGrid(cols, rows, (x) => (x < 3 ? 4 : 4.4));
+  const options = { stride: STRIDE, fx: FX, fy: FY };
+  assert.ok(buildDepthSurface(grid, options).stretchIndices.length > 0);
+  // Push the far side sideways off its source rays.
+  for (let cell = 0; cell < cols * rows; cell++)
+    if (cell % cols >= 3) grid.positions[grid.vertexAt[cell]! * 3] += 2;
+  assert.equal(buildDepthSurface(grid, options).stretchIndices.length, 0);
+});
+
+test("stretched triangles never reference missing or invalid samples", () => {
+  const cols = 9,
+    rows = 9;
+  const isMissing = (x: number, y: number) => (x * 3 + y * 7) % 10 === 0;
+  const { grid, surface } = surfaceOf(cols, rows, (x, y) =>
+    isMissing(x, y) ? null : x < 4 ? 3 : 3.6,
+  );
+  grid.depthAt[grid.cols * 2 + 6] = NaN;
+  const { stretchIndices } = buildDepthSurface(grid, {
+    stride: STRIDE,
+    fx: FX,
+    fy: FY,
+  });
+  assert.ok(surface.stretchIndices.length > 0);
+  assert.equal(stretchIndices.length % 3, 0);
+  const cellOf = cellOfVertex(grid);
+  for (const index of stretchIndices) {
+    const cell = cellOf.get(index)!;
+    assert.ok(!isMissing(cell % cols, Math.floor(cell / cols)));
+    assert.notEqual(cell, grid.cols * 2 + 6);
+  }
 });

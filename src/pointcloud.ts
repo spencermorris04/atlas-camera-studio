@@ -2,10 +2,7 @@ import { Color, FloatType, RedFormat, SRGBColorSpace, Vector3 } from "three";
 import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
 import type { Camera } from "./types";
 import { cameraPose } from "./camera";
-import {
-  fillIsolatedDepthHoles,
-  triangulateDepthSurface,
-} from "./depth-surface";
+import { buildDepthSurface, fillIsolatedDepthHoles } from "./depth-surface";
 
 // Source pixels are sRGB-encoded while vertex colors are consumed as
 // linear-sRGB, so every 8-bit channel is converted once through Three's
@@ -32,6 +29,8 @@ export type PointCloudData = {
   colors: Float32Array;
   /** Compact vertex indices forming the surface triangulation. */
   indices: Uint32Array;
+  /** Untextured triangles bridging plausible depth gaps the surface rejects. */
+  stretchIndices: Uint32Array;
   /** Per-vertex uv, (u / width, 1 - v / height) for flipY textures. */
   uvs: Float32Array;
   medianDepth: number;
@@ -139,13 +138,15 @@ export async function decodePointCloud(
     const forward = new Vector3(0, 0, -1).applyQuaternion(pose.quaternion);
     const focus = pose.position.clone().addScaledVector(forward, medianDepth);
     const positionArray = new Float32Array(positions);
+    const surface = buildDepthSurface(
+      { cols, rows, vertexAt, depthAt: cellDepth, positions: positionArray },
+      { stride, fx: intrinsics.fx * sx, fy: intrinsics.fy * sy },
+    );
     return {
       positions: positionArray,
       colors: new Float32Array(colors),
-      indices: triangulateDepthSurface(
-        { cols, rows, vertexAt, depthAt: cellDepth, positions: positionArray },
-        { stride, fx: intrinsics.fx * sx, fy: intrinsics.fy * sy },
-      ),
+      indices: surface.indices,
+      stretchIndices: surface.stretchIndices,
       uvs: new Float32Array(uvs),
       medianDepth,
       focus: [focus.x, focus.y, focus.z],

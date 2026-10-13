@@ -25,13 +25,41 @@ export type DepthSurfaceOptions = {
   maxFootprintScale?: number;
   /** Relative depth change requiring planar trend evidence. Default 0.12. */
   maxDepthJump?: number;
+  /** Farthest-to-nearest depth ratio a stretched triangle may span. Default 3. */
+  maxStretchDepthRatio?: number;
+};
+
+export type DepthSurface = {
+  /** Triangles the source image supports; these carry its texture. */
+  indices: Uint32Array;
+  /** Rejected triangles that still bridge a plausible depth gap. They
+   * convey colour and shape only; the image never saw what they cover. */
+  stretchIndices: Uint32Array;
 };
 
 export function triangulateDepthSurface(
   grid: DepthSurfaceGrid,
   options: DepthSurfaceOptions,
 ): Uint32Array {
+  return buildDepthSurface(grid, options).indices;
+}
+
+// Stretched triangles are bounded so they only bridge gaps a viewer would
+// read as one continuing scene. A far/near depth ratio above 3 usually joins
+// a foreground silhouette to sky or a distant backdrop; the curtain would
+// then cover most of the scene depth and streak across every off-axis view.
+// Each edge must also be explained by its depth change plus the lateral
+// footprint limit used for supported edges (7 footprints). Samples lie on
+// rays one grid cell apart, so a longer edge means inconsistent positions.
+// The 1.5 factor covers rays up to about 48 degrees off the optical axis.
+const STRETCH_RAY_SLACK = 1.5;
+
+export function buildDepthSurface(
+  grid: DepthSurfaceGrid,
+  options: DepthSurfaceOptions,
+): DepthSurface {
   const { cols, rows, vertexAt, depthAt, positions } = grid;
+  const maxStretchDepthRatio = options.maxStretchDepthRatio ?? 3;
   const maxFootprintScale = options.maxFootprintScale ?? 7;
   const maxDepthJump = options.maxDepthJump ?? 0.12;
   const finitePositive = (depth: number) => Number.isFinite(depth) && depth > 0;
@@ -141,6 +169,39 @@ export function triangulateDepthSurface(
     );
   };
 
+  const usable = (cell: number) =>
+    vertexAt[cell]! >= 0 && finitePositive(depthAt[cell]!);
+  const footprint = (a: number, b: number) =>
+    Math.hypot(
+      (((a % cols) - (b % cols)) * options.stride) / options.fx,
+      ((Math.floor(a / cols) - Math.floor(b / cols)) * options.stride) /
+        options.fy,
+    ) * Math.min(depthAt[a]!, depthAt[b]!);
+  const stretchEdgeOk = (a: number, b: number) => {
+    const i = vertexAt[a]! * 3,
+      j = vertexAt[b]! * 3;
+    const length = Math.hypot(
+      positions[j]! - positions[i]!,
+      positions[j + 1]! - positions[i + 1]!,
+      positions[j + 2]! - positions[i + 2]!,
+    );
+    return (
+      Number.isFinite(length) &&
+      length <=
+        STRETCH_RAY_SLACK * Math.abs(depthAt[a]! - depthAt[b]!) +
+          maxFootprintScale * footprint(a, b)
+    );
+  };
+  const stretchOk = (a: number, b: number, c: number) => {
+    if (!usable(a) || !usable(b) || !usable(c)) return false;
+    const da = depthAt[a]!,
+      db = depthAt[b]!,
+      dc = depthAt[c]!;
+    if (Math.max(da, db, dc) > maxStretchDepthRatio * Math.min(da, db, dc))
+      return false;
+    return stretchEdgeOk(a, b) && stretchEdgeOk(b, c) && stretchEdgeOk(c, a);
+  };
+
   const diagonalLengthSq = (a: number, b: number) => {
     const i = vertexAt[a]! * 3,
       j = vertexAt[b]! * 3;
@@ -151,6 +212,14 @@ export function triangulateDepthSurface(
   };
 
   const out: number[] = [];
+  const stretched: number[] = [];
+  // Emit a triangle as textured when its sides are supported, otherwise as
+  // stretched when its corners are usable and its span is plausible.
+  const emit = (supported: boolean, a: number, b: number, c: number) => {
+    if (supported) out.push(vertexAt[a]!, vertexAt[b]!, vertexAt[c]!);
+    else if (stretchOk(a, b, c))
+      stretched.push(vertexAt[a]!, vertexAt[b]!, vertexAt[c]!);
+  };
   for (let y = 0; y + 1 < rows; y += 1) {
     for (let x = 0; x + 1 < cols; x += 1) {
       const a = y * cols + x,
@@ -172,25 +241,37 @@ export function triangulateDepthSurface(
         ? Number(right && bottom) + Number(top && left)
         : 0;
       // A shorter diagonal must not hide a valid triangle from the other split.
+      let splitAd: boolean;
       if (
         countAd > countBc ||
         (countAd > 0 &&
           countAd === countBc &&
           diagonalLengthSq(a, d) <= diagonalLengthSq(b, c))
-      ) {
+      )
+        splitAd = true;
+      else if (diagBc) splitAd = false;
+      // No supported diagonal: stretched triangles keep the split that has a
+      // triangle over every usable corner, preferring the shorter diagonal.
+      else if (!usable(a) || !usable(d)) splitAd = false;
+      else if (!usable(b) || !usable(c)) splitAd = true;
+      else splitAd = diagonalLengthSq(a, d) <= diagonalLengthSq(b, c);
+      if (splitAd) {
         // Triangle (a, b, d) spans the top and right sides.
-        if (top && right) out.push(vertexAt[a]!, vertexAt[b]!, vertexAt[d]!);
+        emit(diagAd && top && right, a, b, d);
         // Triangle (a, d, c) spans the bottom and left sides.
-        if (left && bottom) out.push(vertexAt[a]!, vertexAt[d]!, vertexAt[c]!);
-      } else if (diagBc) {
+        emit(diagAd && left && bottom, a, d, c);
+      } else {
         // Triangle (b, d, c) spans the right and bottom sides.
-        if (right && bottom) out.push(vertexAt[b]!, vertexAt[d]!, vertexAt[c]!);
+        emit(diagBc && right && bottom, b, d, c);
         // Triangle (b, c, a) spans the top and left sides.
-        if (top && left) out.push(vertexAt[b]!, vertexAt[c]!, vertexAt[a]!);
+        emit(diagBc && top && left, b, c, a);
       }
     }
   }
-  return new Uint32Array(out);
+  return {
+    indices: new Uint32Array(out),
+    stretchIndices: new Uint32Array(stretched),
+  };
 }
 
 /** Fill only isolated interior holes whose eight measured neighbors fit a plane.

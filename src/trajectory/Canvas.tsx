@@ -1,5 +1,4 @@
 import {
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -14,7 +13,6 @@ import {
   Html,
   Line,
   OrbitControls,
-  useTexture,
 } from "@react-three/drei";
 import {
   Canvas,
@@ -38,6 +36,7 @@ import { createIntrinsicsFromFov } from "./common";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { FrustumObject } from "./FrustumObject";
+import { PosedPointCloud } from "./PreviewCloud";
 import type { PosedView } from "./pose";
 import {
   cameraAimDegrees,
@@ -496,6 +495,7 @@ function ShotScene({
   aimTarget,
   allowBelowFloor,
   theme,
+  fill,
   sceneRadius,
   piloting,
   pendingPose,
@@ -584,7 +584,7 @@ function ShotScene({
         fadeStrength={2}
       />
 
-      <PosedPointCloud pose={pose} scaleMultiplier={1} />
+      <PosedPointCloud pose={pose} scaleMultiplier={1} fill={fill} />
 
       {aimMode === "look_at" && aimTarget && (
         <DirectionTargetMarker
@@ -1632,12 +1632,14 @@ export function ShotCameraView({
   playhead,
   fovRadians,
   theme,
+  fill,
 }: {
   pose: PosedView;
   curve: ShotCurve;
   playhead: Playhead;
   fovRadians: number;
   theme: StudioTheme;
+  fill: boolean;
 }) {
   return (
     <Canvas
@@ -1648,7 +1650,7 @@ export function ShotCameraView({
       gl={{ antialias: true }}
     >
       <ClearColor color={SCENE_PALETTE[theme].background} />
-      <PosedPointCloud pose={pose} scaleMultiplier={0.7} />
+      <PosedPointCloud pose={pose} scaleMultiplier={0.7} fill={fill} />
       <ShotCameraController
         curve={curve}
         playhead={playhead}
@@ -1725,89 +1727,4 @@ function buildOverviewPosition(
       Math.max(referenceDistance * 1.15, pathRadius * 2.5) * lensScale,
     )
     .toArray() as TrajectoryPoint;
-}
-
-function PosedPointCloud({
-  pose,
-  scaleMultiplier,
-}: {
-  pose: PosedView;
-  scaleMultiplier: number;
-}) {
-  const { pointGeometry, surfaceGeometry } = useMemo(() => {
-    // Both geometries reference the same position/color buffers; nothing
-    // large is copied.
-    const position = new THREE.BufferAttribute(pose.points.positions, 3);
-    const color = new THREE.BufferAttribute(pose.points.colors, 3);
-    const pointGeometry = new THREE.BufferGeometry();
-    pointGeometry.setAttribute("position", position);
-    pointGeometry.setAttribute("color", color);
-
-    const surface = pose.points;
-    let surfaceGeometry: THREE.BufferGeometry | null = null;
-    if (surface.indices.length) {
-      surfaceGeometry = new THREE.BufferGeometry();
-      surfaceGeometry.setAttribute("position", position);
-      surfaceGeometry.setAttribute(
-        "uv",
-        new THREE.BufferAttribute(surface.uvs, 2),
-      );
-      surfaceGeometry.setIndex(new THREE.BufferAttribute(surface.indices, 1));
-    }
-    return { pointGeometry, surfaceGeometry };
-  }, [pose]);
-
-  useEffect(
-    () => () => {
-      pointGeometry.dispose();
-      surfaceGeometry?.dispose();
-    },
-    [pointGeometry, surfaceGeometry],
-  );
-
-  return (
-    <group
-      position={pose.camera.extrinsics.position}
-      quaternion={pose.camera.extrinsics.quaternion}
-    >
-      {/* Colored points stay visible for mesh edges and unmeshed areas; the
-          surface is biased back so coincident points win the depth test. */}
-      <points geometry={pointGeometry}>
-        <pointsMaterial
-          vertexColors
-          size={pose.points.pointSize * scaleMultiplier}
-          sizeAttenuation
-          toneMapped={false}
-        />
-      </points>
-      {surfaceGeometry && (
-        <Suspense fallback={null}>
-          <PosedSurface geometry={surfaceGeometry} imageUrl={pose.imageUrl} />
-        </Suspense>
-      )}
-    </group>
-  );
-}
-
-function PosedSurface({
-  geometry,
-  imageUrl,
-}: {
-  geometry: THREE.BufferGeometry;
-  imageUrl: string;
-}) {
-  const texture = useTexture(imageUrl);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return (
-    <mesh geometry={geometry} raycast={() => null}>
-      <meshBasicMaterial
-        map={texture}
-        side={THREE.DoubleSide}
-        toneMapped={false}
-        polygonOffset
-        polygonOffsetFactor={1}
-        polygonOffsetUnits={1}
-      />
-    </mesh>
-  );
 }

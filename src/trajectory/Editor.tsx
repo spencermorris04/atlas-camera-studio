@@ -1649,6 +1649,7 @@ export function CameraTrajectoryPage({
                   playhead={playhead}
                   fovRadians={fovRadians}
                   theme={theme}
+                  fill={previewFill}
                 />
                 <MonitorOverlay
                   playhead={playhead}

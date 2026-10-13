@@ -16,6 +16,8 @@ export type PosedView = {
     colors: Float32Array;
     /** Compact vertex indices forming the surface triangulation. */
     indices: Uint32Array;
+    /** Untextured triangles bridging plausible depth gaps the surface rejects. */
+    stretchIndices: Uint32Array;
     /** Per-vertex uv, (u / width, 1 - v / height) for flipY textures. */
     uvs: Float32Array;
     shape: [number, number];
@@ -105,6 +107,7 @@ async function decodeLocalPointCloud(
     positions,
     colors: cloud.colors,
     indices: cloud.indices,
+    stretchIndices: cloud.stretchIndices,
     uvs: cloud.uvs,
     shape: [positions.length / 3, 1] as [number, number],
     pointSize: Math.max(0.003, cloud.medianDepth * 0.006),
