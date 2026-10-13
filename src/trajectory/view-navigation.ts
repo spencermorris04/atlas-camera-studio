@@ -108,10 +108,29 @@ export function shouldHandleViewerKey(event: {
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
-  target: { tagName?: string; isContentEditable?: boolean } | null;
+  target: object | null;
 }): boolean {
   if (event.ctrlKey || event.metaKey || event.altKey) return false;
-  const tagName = event.target?.tagName?.toLowerCase();
+  const target = event.target;
+  const tagName =
+    target && "tagName" in target && typeof target.tagName === "string"
+      ? target.tagName.toLowerCase()
+      : null;
   if (tagName && TYPING_TAGS.has(tagName)) return false;
-  return !event.target?.isContentEditable;
+  return !(target && "isContentEditable" in target && target.isContentEditable);
+}
+
+/** Equal axis angles, viewed from the source camera's side of the scene. */
+export function isometricViewDirection(
+  reference: readonly [number, number, number],
+  target: readonly [number, number, number],
+  out: Vector3,
+): Vector3 {
+  return out
+    .set(
+      reference[0] > target[0] ? 1 : -1,
+      1,
+      reference[2] >= target[2] ? 1 : -1,
+    )
+    .normalize();
 }

@@ -9,22 +9,22 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #263238;
-  background: #f4f2ec;
+  color: #202733;
+  background: #ffffff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --studio-bg: #f4f2ec;
-  --studio-surface: #fffefa;
-  --studio-inset: #eeece5;
-  --studio-text: #263238;
-  --studio-muted: #687579;
-  --studio-border: #d9ddd7;
-  --studio-accent: #347f78;
-  --studio-accent-hover: #286c66;
-  --studio-accent-wash: #e1efeb;
-  --studio-focus: #70a99e;
+  --studio-bg: #ffffff;
+  --studio-surface: #ffffff;
+  --studio-inset: #f8fafc;
+  --studio-text: #202733;
+  --studio-muted: #727b88;
+  --studio-border: #e5e9ef;
+  --studio-accent: #334155;
+  --studio-accent-hover: #1e293b;
+  --studio-accent-wash: #f1f5f9;
+  --studio-focus: #94a3b8;
 }
 
 body {
@@ -74,7 +74,7 @@ select:focus-visible {
   z-index: 50;
   min-height: 48px;
   color: var(--studio-muted);
-  background: rgba(255, 254, 250, 0.96);
+  background: #ffffff;
   border-bottom: 1px solid var(--studio-border);
 }
 
@@ -131,12 +131,12 @@ select:focus-visible {
   border: 1px solid var(--studio-border);
   background: var(--studio-surface);
   color: var(--studio-text);
-  box-shadow: 0 1px 2px rgb(38 50 56 / 4%);
+  box-shadow: 0 1px 2px rgb(32 39 51 / 4%);
 }
 
 .studio-select:hover,
 .studio-outline-button:hover {
-  border-color: #b8c8c2;
+  border-color: #cbd5e1;
   background: var(--studio-accent-wash);
 }
 
@@ -147,7 +147,7 @@ select:focus-visible {
   z-index: 70;
   max-width: min(360px, calc(100vw - 32px));
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgb(38 50 56 / 10%);
+  box-shadow: 0 4px 16px rgb(32 39 51 / 10%);
   color: #725a2d;
   background: #f8f0dc;
   border: 1px solid #e9dcb9;

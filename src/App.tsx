@@ -154,12 +154,12 @@ function Studio({ config, auth }: { config: Config; auth: Auth }) {
         </span>
         <div ref={setToolbarContainer} className="ml-auto" />
         <details className="studio-help relative">
-          <summary className="cursor-pointer list-none rounded px-2 py-2 text-[#687579] hover:text-[#263238]">
+          <summary className="cursor-pointer list-none rounded px-2 py-2 text-[#727b88] hover:text-[#202733]">
             Help
           </summary>
           <nav
             aria-label="Help links"
-            className="absolute right-0 top-full z-50 flex w-40 flex-col gap-3 rounded-lg border border-[#d9ddd7] bg-[#fffefa] p-4 shadow-lg"
+            className="absolute right-0 top-full z-50 flex w-40 flex-col gap-3 rounded-lg border border-[#e5e9ef] bg-[#ffffff] p-4 shadow-sm"
           >
             {config.repoUrl && (
               <a

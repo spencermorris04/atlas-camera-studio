@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Quaternion, Vector3 } from "three";
 import {
   VIEWER_AXIS_STEP,
+  isometricViewDirection,
   consumePendingAxisMove,
   shouldHandleViewerKey,
   viewerKeyStep,
@@ -173,4 +174,25 @@ test("viewer keys are ignored while modifiers are held or typing", () => {
     true,
     "a null target is still the viewer",
   );
+});
+
+test("isometric overview gives all axes equal weight and stays on the source side", () => {
+  for (const reference of [
+    [4, 2, 6],
+    [-4, 2, -6],
+    [0, 2, 0],
+  ] as const) {
+    const direction = isometricViewDirection(
+      reference,
+      [0, 0, 0],
+      new Vector3(),
+    );
+    assert.ok(Math.abs(direction.length() - 1) < 1e-12);
+    assert.equal(Math.abs(direction.x), direction.y);
+    assert.equal(Math.abs(direction.z), direction.y);
+    if (reference[0] !== 0)
+      assert.equal(Math.sign(direction.x), Math.sign(reference[0]));
+    if (reference[2] !== 0)
+      assert.equal(Math.sign(direction.z), Math.sign(reference[2]));
+  }
 });

@@ -45,6 +45,7 @@ import {
 } from "./camera-trajectory";
 import {
   consumePendingAxisMove,
+  isometricViewDirection,
   shouldHandleViewerKey,
   viewerKeyStep,
   viewerMovementFromKeys,
@@ -55,12 +56,13 @@ import {
 } from "./view-navigation";
 
 const PATH_SAMPLES = 101;
-const PATH_COLOR = "#347f78";
-const PATH_ADDING_COLOR = "#70a99e";
-const HANDLE_COLOR = "#70a99e";
-const SELECTED_CAMERA_TEAL = "#286c66";
-const SELECTED_CAMERA_DARK_TEAL = "#21423d";
-const STUDIO_BACKGROUND = "#eeece5";
+const PATH_COLOR = "#334155";
+const PATH_ADDING_COLOR = "#94a3b8";
+const HANDLE_COLOR = "#94a3b8";
+const SELECTED_CAMERA_COLOR = "#334155";
+const SELECTED_CAMERA_OUTLINE = "#1e293b";
+const STUDIO_BACKGROUND = "#ffffff";
+const OVERVIEW_FOV = 35;
 const PREVIEW_PROGRESS_REPORT_INTERVAL = 1 / 12;
 
 type CameraTrajectoryCanvasProps = {
@@ -214,7 +216,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
             ? "set"
             : "idle"
       }
-      className={`relative h-full w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#70a99e]/60 ${props.placingDirectionTarget ? "cursor-crosshair" : ""}`}
+      className={`relative h-full w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#94a3b8]/60 ${props.placingDirectionTarget ? "cursor-crosshair" : ""}`}
       onPointerDown={(event) =>
         event.currentTarget.focus({ preventScroll: true })
       }
@@ -230,10 +232,10 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
       {navigating && (
         <nav
           aria-label="Scene navigation"
-          className="studio-view-controls absolute left-1/2 top-3 z-40 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-lg border border-[#263238]/15 bg-[#fffefa]/95 p-2 shadow-sm backdrop-blur"
+          className="studio-view-controls absolute left-1/2 top-3 z-40 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-lg border border-[#202733]/15 bg-[#ffffff]/95 p-2 shadow-sm backdrop-blur"
         >
           <div className="flex items-center gap-2">
-            <span className="hidden text-[10px] font-medium text-[#687579] md:inline">
+            <span className="hidden text-[10px] font-medium text-[#727b88] md:inline">
               View
             </span>
             {(["x", "y", "z"] as const).map((axis) => (
@@ -246,7 +248,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
                     title={`Move view on ${axis.toUpperCase()}`}
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={() => nudgeView(axis, positive)}
-                    className="h-8 w-8 rounded-md border border-[#263238]/10 bg-white text-[11px] font-medium text-[#263238] hover:border-[#347f78]/50 hover:text-[#347f78]"
+                    className="h-8 w-8 rounded-md border border-[#202733]/10 bg-white text-[11px] font-medium text-[#202733] hover:border-[#334155]/50 hover:text-[#334155]"
                   >
                     {axis.toUpperCase()}
                     {positive ? "+" : "−"}
@@ -260,19 +262,19 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
               aria-label="Reset 3D view"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={resetView}
-              className="flex h-8 items-center gap-1.5 rounded-md border border-[#263238]/10 px-2 text-[11px] font-medium text-[#263238] hover:text-[#347f78]"
+              className="flex h-8 items-center gap-1.5 rounded-md border border-[#202733]/10 px-2 text-[11px] font-medium text-[#202733] hover:text-[#334155]"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               <span className="hidden lg:inline">Reset view</span>
             </button>
           </div>
-          <p className="mt-1.5 hidden whitespace-nowrap text-center text-[9px] text-[#687579] md:block">
+          <p className="mt-1.5 hidden whitespace-nowrap text-center text-[9px] text-[#727b88] md:block">
             Drag: orbit · Right-drag: pan · WASD: move · Q/E: down/up
           </p>
         </nav>
       )}
       {props.placingDirectionTarget && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[#96713d]/40 bg-[#fffefa]/95 p-1.5 pl-3 text-xs font-semibold text-[#96713d] shadow-xl backdrop-blur">
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[#64748b]/40 bg-[#ffffff]/95 p-1.5 pl-3 text-xs font-semibold text-[#64748b] shadow-sm backdrop-blur">
           <span id="look-at-picker-instruction">
             {props.placingDirectionTargetMode === "look_away"
               ? "Click the point to look away from"
@@ -282,7 +284,7 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
             type="button"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={props.onDirectionTargetCancel}
-            className="pointer-events-auto h-7 rounded border border-[#263238]/15 px-2 text-[10px] text-[#263238]/65 transition hover:bg-[#263238]/[0.04] hover:text-[#263238] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#96713d]"
+            className="pointer-events-auto h-7 rounded border border-[#202733]/15 px-2 text-[10px] text-[#202733]/65 transition hover:bg-[#202733]/[0.04] hover:text-[#202733] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#64748b]"
           >
             Cancel
           </button>
@@ -292,12 +294,12 @@ export function CameraTrajectoryCanvas(props: CameraTrajectoryCanvasProps) {
         className={`h-full w-full ${props.addingPivot || props.placingDirectionTarget ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
         camera={{
           position: overviewHome.position,
-          fov: 50,
+          fov: OVERVIEW_FOV,
           near: 0.01,
           far: 1000,
         }}
         dpr={[1, 1.5]}
-        gl={{ antialias: false }}
+        gl={{ antialias: true }}
         onCreated={({ gl }) => gl.setClearColor(STUDIO_BACKGROUND)}
       >
         <CameraTrajectoryScene
@@ -332,7 +334,7 @@ export function CameraPointCloudView({
       dpr={[1, 1.5]}
       frameloop="demand"
       gl={{ antialias: false }}
-      onCreated={({ gl }) => gl.setClearColor("#eeece5")}
+      onCreated={({ gl }) => gl.setClearColor("#ffffff")}
     >
       <PosedPointCloud pose={pose} scaleMultiplier={0.7} />
       <CameraPointCloudViewCamera view={view} />
@@ -538,15 +540,15 @@ function CameraTrajectoryScene({
         <Grid
           args={[100, 100]}
           position={[0, -0.002, 0]}
-          cellSize={0.5}
-          cellThickness={0.5}
-          cellColor="#d9ddd7"
-          sectionSize={2.5}
-          sectionThickness={0.8}
-          sectionColor="#c2c9c2"
+          cellSize={1}
+          cellThickness={0.65}
+          cellColor="#dfe5ee"
+          sectionSize={5}
+          sectionThickness={1}
+          sectionColor="#c3cedd"
           infiniteGrid
-          fadeDistance={30}
-          fadeStrength={1.5}
+          fadeDistance={40}
+          fadeStrength={2}
         />
       )}
 
@@ -651,7 +653,7 @@ function CameraTrajectoryScene({
                 quaternion: referenceView.quaternion,
               },
             }}
-            color="#96713d"
+            color="#64748b"
             depth={markerDepth * 0.75}
             overlay
           />
@@ -661,7 +663,7 @@ function CameraTrajectoryScene({
             zIndexRange={[20, 0]}
             className="pointer-events-none"
           >
-            <div className="whitespace-nowrap rounded border border-[#96713d]/50 bg-[#fffefa]/90 px-2 py-1 text-[10px] font-semibold text-[#96713d] shadow-lg backdrop-blur">
+            <div className="whitespace-nowrap rounded border border-[#64748b]/50 bg-[#ffffff]/90 px-2 py-1 text-[10px] font-semibold text-[#64748b] shadow-sm backdrop-blur">
               Source camera
             </div>
           </Html>
@@ -768,7 +770,7 @@ function SelectedCameraDirection({
       >
         <coneGeometry args={[depth * 0.18, depth * 0.38, 16]} />
         <meshBasicMaterial
-          color={SELECTED_CAMERA_TEAL}
+          color={SELECTED_CAMERA_COLOR}
           transparent
           opacity={0.7}
           depthTest={false}
@@ -784,7 +786,7 @@ function SelectedCameraDirection({
       >
         <coneGeometry args={[depth * 0.115, depth * 0.3, 16]} />
         <meshBasicMaterial
-          color={SELECTED_CAMERA_DARK_TEAL}
+          color={SELECTED_CAMERA_OUTLINE}
           depthTest={false}
           depthWrite={false}
           toneMapped={false}
@@ -933,7 +935,7 @@ function DirectionTargetMarker({
       <mesh raycast={() => undefined}>
         <ringGeometry args={[0.3, 0.45, 32]} />
         <meshBasicMaterial
-          color="#96713d"
+          color="#64748b"
           transparent
           opacity={0.95}
           side={THREE.DoubleSide}
@@ -947,7 +949,7 @@ function DirectionTargetMarker({
           [-0.62, 0, 0],
           [0.62, 0, 0],
         ]}
-        color="#96713d"
+        color="#64748b"
         lineWidth={4}
         depthTest={false}
         raycast={() => undefined}
@@ -957,7 +959,7 @@ function DirectionTargetMarker({
           [0, -0.62, 0],
           [0, 0.62, 0],
         ]}
-        color="#96713d"
+        color="#64748b"
         lineWidth={4}
         depthTest={false}
         raycast={() => undefined}
@@ -970,7 +972,7 @@ function DirectionTargetMarker({
       >
         <div
           data-camera-look-target="set"
-          className="whitespace-nowrap rounded border border-[#96713d]/50 bg-[#fffefa]/95 px-2 py-1 text-[9px] font-semibold tracking-[0.02em] text-[#96713d] shadow-lg backdrop-blur"
+          className="whitespace-nowrap rounded border border-[#64748b]/50 bg-[#ffffff]/95 px-2 py-1 text-[9px] font-semibold tracking-[0.02em] text-[#64748b] shadow-sm backdrop-blur"
         >
           {label}
         </div>
@@ -990,7 +992,7 @@ function CameraDirectionStroke({
     <>
       <Line
         points={[...points]}
-        color={SELECTED_CAMERA_TEAL}
+        color={SELECTED_CAMERA_COLOR}
         lineWidth={lineWidth + 5}
         transparent
         opacity={0.7}
@@ -1002,7 +1004,7 @@ function CameraDirectionStroke({
       />
       <Line
         points={[...points]}
-        color={SELECTED_CAMERA_DARK_TEAL}
+        color={SELECTED_CAMERA_OUTLINE}
         lineWidth={lineWidth}
         depthTest={false}
         depthWrite={false}
@@ -1238,7 +1240,7 @@ function TrajectoryHandle({
             ),
             extrinsics: { position: [0, 0, 0], quaternion: [0, 0, 0, 1] },
           }}
-          color={selected ? SELECTED_CAMERA_TEAL : HANDLE_COLOR}
+          color={selected ? SELECTED_CAMERA_COLOR : HANDLE_COLOR}
           depth={markerDepth}
           overlay
           markers={false}
@@ -1261,7 +1263,7 @@ function TrajectoryHandle({
         <mesh>
           <sphereGeometry args={[1, 24, 16]} />
           <meshBasicMaterial
-            color={dragging || hovered || selected ? "#f7f5ef" : HANDLE_COLOR}
+            color={dragging || hovered || selected ? "#ffffff" : HANDLE_COLOR}
             depthTest={false}
             depthWrite={false}
             toneMapped={false}
@@ -1282,13 +1284,13 @@ function TrajectoryHandle({
             data-camera-selected={selected}
             data-camera-position={position.join(",")}
             data-camera-angle={hasCameraAngle ? "set" : "unset"}
-            className={`grid h-5 w-5 place-items-center rounded-full border text-[10px] font-bold shadow-lg transition ${
+            className={`grid h-5 w-5 place-items-center rounded-full border text-[10px] font-bold shadow-sm transition ${
               dragging || hovered
-                ? "border-[#263238] bg-white text-[#263238]"
+                ? "border-[#202733] bg-white text-[#202733]"
                 : selected
-                  ? "border-[#263238] bg-white text-[#263238]"
-                  : "border-[#70a99e] bg-[#70a99e] text-[#21423d]"
-            } ${hasCameraAngle ? "ring-2 ring-[#286c66]/70 ring-offset-1 ring-offset-[#eeece5]" : ""}`}
+                  ? "border-[#202733] bg-white text-[#202733]"
+                  : "border-[#94a3b8] bg-[#94a3b8] text-[#1e293b]"
+            } ${hasCameraAngle ? "ring-2 ring-[#1e293b]/70 ring-offset-1 ring-offset-[#ffffff]" : ""}`}
           >
             {pivotNumber}
           </span>
@@ -1470,22 +1472,19 @@ function buildOverviewPosition(
       ),
     ),
   );
-  radial.normalize();
-  const side = new THREE.Vector3().crossVectors(
-    radial,
-    new THREE.Vector3(0, 1, 0),
+  const direction = isometricViewDirection(
+    referencePosition,
+    targetPosition,
+    new THREE.Vector3(),
   );
-  if (side.lengthSq() < 1e-5) side.set(1, 0, 0);
-  side.normalize();
-  const direction = radial
-    .multiplyScalar(1.05)
-    .addScaledVector(side, 0.35)
-    .addScaledVector(new THREE.Vector3(0, 1, 0), 0.25)
-    .normalize();
+  // Preserve the overview framing with a narrower lens for flatter depth.
+  const lensScale =
+    Math.tan(THREE.MathUtils.degToRad(25)) /
+    Math.tan(THREE.MathUtils.degToRad(OVERVIEW_FOV / 2));
   return target
     .addScaledVector(
       direction,
-      Math.max(referenceDistance * 1.15, pathRadius * 2.5),
+      Math.max(referenceDistance * 1.15, pathRadius * 2.5) * lensScale,
     )
     .toArray();
 }
