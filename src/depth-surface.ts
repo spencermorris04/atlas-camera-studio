@@ -1,7 +1,7 @@
 // Connect the sampled image grid without stretching it across depth edges.
-// Missing samples are skipped. A cell with three valid corners keeps one
-// triangle; otherwise use the shorter valid diagonal. Long edges require a
-// consistent inverse-depth trend. Positions may
+// A cell with three valid corners keeps one triangle; otherwise prefer the
+// split with more valid triangles, then the shorter diagonal. Long edges require
+// a consistent inverse-depth trend. Positions may
 // be in camera or world coordinates because rigid transforms preserve length.
 
 export type DepthSurfaceGrid = {
@@ -23,7 +23,7 @@ export type DepthSurfaceOptions = {
   fy: number;
   /** Longer edges need a consistent neighboring depth trend. Default 7 footprints. */
   maxFootprintScale?: number;
-  /** Maximum relative depth change across an edge. Default 0.12. */
+  /** Relative depth change requiring planar trend evidence. Default 0.12. */
   maxDepthJump?: number;
 };
 
@@ -36,6 +36,47 @@ export function triangulateDepthSurface(
   const maxDepthJump = options.maxDepthJump ?? 0.12;
   const finitePositive = (depth: number) => Number.isFinite(depth) && depth > 0;
 
+  // A 2D neighborhood can establish a plane where a line of samples crosses
+  // curved/noisy detail. Check every measured sample, so an occlusion step
+  // cannot be explained away by an average fit.
+  const planar = new Uint8Array(cols * rows);
+  for (let y = 1; y + 1 < rows; y++) {
+    for (let x = 1; x + 1 < cols; x++) {
+      const center = y * cols + x;
+      let mean = 0,
+        slopeX = 0,
+        slopeY = 0,
+        valid = true;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const cell = center + dy * cols + dx;
+          if (vertexAt[cell] < 0 || !finitePositive(depthAt[cell])) {
+            valid = false;
+            continue;
+          }
+          const inverse = 1 / depthAt[cell];
+          mean += inverse / 9;
+          slopeX += (dx * inverse) / 6;
+          slopeY += (dy * inverse) / 6;
+        }
+      }
+      if (!valid) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (
+            Math.abs(
+              1 / depthAt[center + dy * cols + dx] -
+                (mean + dx * slopeX + dy * slopeY),
+            ) >
+            mean * 0.01
+          )
+            valid = false;
+        }
+      }
+      planar[center] = Number(valid);
+    }
+  }
+
   // An edge may be a triangle side only when both endpoints exist with
   // usable depths and the samples are plausibly part of one surface.
   const edgeOk = (a: number, b: number) => {
@@ -46,7 +87,6 @@ export function triangulateDepthSurface(
       db = depthAt[b]!;
     if (!finitePositive(da) || !finitePositive(db)) return false;
     const nearer = Math.min(da, db);
-    if (Math.abs(da - db) > maxDepthJump * nearer) return false;
     const pixelX = (((a % cols) - (b % cols)) * options.stride) / options.fx;
     const pixelY =
       ((Math.floor(a / cols) - Math.floor(b / cols)) * options.stride) /
@@ -60,7 +100,13 @@ export function triangulateDepthSurface(
       dz = positions[j + 2]! - positions[i + 2]!;
     const lengthSquared = dx * dx + dy * dy + dz * dz;
     if (!Number.isFinite(lengthSquared)) return false;
-    if (lengthSquared <= limitSquared) return true;
+    if (
+      lengthSquared <= limitSquared &&
+      Math.abs(da - db) <= maxDepthJump * nearer
+    )
+      return true;
+
+    if (planar[a] || planar[b]) return true;
 
     // Inverse depth varies linearly across a plane in the source image.
     // A grazing floor has long 3D edges but the same trend on both sides;
@@ -71,36 +117,27 @@ export function triangulateDepthSurface(
       by = Math.floor(b / cols);
     const stepX = bx - ax,
       stepY = by - ay;
-    const px = ax - stepX,
-      py = ay - stepY;
-    const nx = bx + stepX,
-      ny = by + stepY;
-    if (
-      px < 0 ||
-      py < 0 ||
-      nx < 0 ||
-      ny < 0 ||
-      px >= cols ||
-      nx >= cols ||
-      py >= rows ||
-      ny >= rows
-    )
-      return false;
-    const prev = py * cols + px,
-      next = ny * cols + nx;
-    if (
-      vertexAt[prev] < 0 ||
-      vertexAt[next] < 0 ||
-      !finitePositive(depthAt[prev]) ||
-      !finitePositive(depthAt[next])
-    )
-      return false;
     const slope = 1 / db - 1 / da;
-    if (Math.abs(slope) < 1e-6) return false;
-    const tolerance = Math.abs(slope) * 0.25 + 1e-6;
+    const tolerance = Math.abs(slope) * 0.25 + 0.005 / nearer;
+    const inverseAt = (step: number) => {
+      const x = ax + step * stepX,
+        y = ay + step * stepY;
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return NaN;
+      const cell = y * cols + x;
+      return vertexAt[cell] >= 0 && finitePositive(depthAt[cell])
+        ? 1 / depthAt[cell]
+        : NaN;
+    };
+    const matches = (first: number, second: number) =>
+      Math.abs(inverseAt(second) - inverseAt(first) - slope) <= tolerance;
+    // Require two additional consecutive edges. At image boundaries both can
+    // be on the same side; an isolated depth step still has no matching trend.
+    const before = matches(-1, 0),
+      after = matches(1, 2);
     return (
-      Math.abs(1 / da - 1 / depthAt[prev] - slope) <= tolerance &&
-      Math.abs(1 / depthAt[next] - 1 / db - slope) <= tolerance
+      (before && after) ||
+      (before && matches(-2, -1)) ||
+      (after && matches(2, 3))
     );
   };
 
@@ -128,10 +165,18 @@ export function triangulateDepthSurface(
         right = edgeOk(b, d);
       const diagAd = edgeOk(a, d),
         diagBc = edgeOk(b, c);
-      // Prefer the shorter diagonal when both splits are viable.
+      const countAd = diagAd
+        ? Number(top && right) + Number(left && bottom)
+        : 0;
+      const countBc = diagBc
+        ? Number(right && bottom) + Number(top && left)
+        : 0;
+      // A shorter diagonal must not hide a valid triangle from the other split.
       if (
-        diagAd &&
-        (!diagBc || diagonalLengthSq(a, d) <= diagonalLengthSq(b, c))
+        countAd > countBc ||
+        (countAd > 0 &&
+          countAd === countBc &&
+          diagonalLengthSq(a, d) <= diagonalLengthSq(b, c))
       ) {
         // Triangle (a, b, d) spans the top and right sides.
         if (top && right) out.push(vertexAt[a]!, vertexAt[b]!, vertexAt[d]!);
@@ -146,4 +191,54 @@ export function triangulateDepthSurface(
     }
   }
   return new Uint32Array(out);
+}
+
+/** Fill only isolated interior holes whose eight measured neighbors fit a plane.
+ * Inverse depth is affine over image coordinates for a pinhole-viewed plane.
+ * Reading only the original samples prevents repairs from growing into gaps.
+ */
+export function fillIsolatedDepthHoles(
+  depths: Float32Array,
+  cols: number,
+  rows: number,
+): Float32Array {
+  const filled = depths.slice();
+  for (let y = 1; y + 1 < rows; y++) {
+    for (let x = 1; x + 1 < cols; x++) {
+      const cell = y * cols + x;
+      if (Number.isFinite(depths[cell]) && depths[cell] > 0) continue;
+      let mean = 0,
+        slopeX = 0,
+        slopeY = 0;
+      let valid = true;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const depth = depths[cell + dy * cols + dx];
+          if (!Number.isFinite(depth) || depth <= 0) {
+            valid = false;
+            continue;
+          }
+          const inverse = 1 / depth;
+          mean += inverse / 8;
+          slopeX += (dx * inverse) / 6;
+          slopeY += (dy * inverse) / 6;
+        }
+      }
+      if (!valid) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const predicted = mean + dx * slopeX + dy * slopeY;
+          if (
+            Math.abs(1 / depths[cell + dy * cols + dx] - predicted) >
+            mean * 0.005
+          )
+            valid = false;
+        }
+      }
+      if (valid) filled[cell] = 1 / mean;
+    }
+  }
+  return filled;
 }

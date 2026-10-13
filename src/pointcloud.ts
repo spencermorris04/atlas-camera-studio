@@ -2,7 +2,10 @@ import { Color, FloatType, RedFormat, SRGBColorSpace, Vector3 } from "three";
 import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
 import type { Camera } from "./types";
 import { cameraPose } from "./camera";
-import { triangulateDepthSurface } from "./depth-surface";
+import {
+  fillIsolatedDepthHoles,
+  triangulateDepthSurface,
+} from "./depth-surface";
 
 // Source pixels are sRGB-encoded while vertex colors are consumed as
 // linear-sRGB, so every 8-bit channel is converted once through Three's
@@ -77,11 +80,15 @@ export async function decodePointCloud(
     // Grid topology of the regular sample lattice: which compact vertex
     // (if any) each cell produced, and the depth that generated it.
     const vertexAt = new Int32Array(cols * rows).fill(-1);
-    const cellDepth = new Float32Array(cols * rows).fill(NaN);
+    const measuredDepth = new Float32Array(cols * rows);
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++)
+        measuredDepth[y * cols + x] = depthAt(x * stride, y * stride);
+    const cellDepth = fillIsolatedDepthHoles(measuredDepth, cols, rows);
     const sampled: number[] = [];
     for (let y = 0; y < height; y += stride)
       for (let x = 0; x < width; x += stride) {
-        const d = depthAt(x, y);
+        const d = cellDepth[(y / stride) * cols + x / stride];
         if (Number.isFinite(d) && d > 0) sampled.push(d);
       }
     if (!sampled.length)
@@ -97,7 +104,7 @@ export async function decodePointCloud(
       sy = height / bitmap.height;
     for (let y = 0; y < height; y += stride)
       for (let x = 0; x < width; x += stride) {
-        const d = depthAt(x, y);
+        const d = cellDepth[(y / stride) * cols + x / stride];
         if (!Number.isFinite(d) || d <= 0) continue;
         const u = (x + 0.5) / sx,
           v = (y + 0.5) / sy;

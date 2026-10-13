@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { FloatType, RedFormat } from "three";
+import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
 import {
   triangulateDepthSurface,
+  fillIsolatedDepthHoles,
   type DepthSurfaceGrid,
 } from "../src/depth-surface";
 
@@ -192,11 +196,11 @@ test("nonfinite and nonpositive depths never produce indices", () => {
 });
 
 test("custom depth thresholds tighten or loosen acceptance", () => {
-  // A smooth slope passes the normal guards but a stricter depth-jump
-  // threshold rejects it.
-  const cols = 6,
-    rows = 5;
-  const slope = (col: number) => 4 + 0.0075 * col * STRIDE;
+  // A small step passes normal guards but fails stricter thresholds;
+  // neither side provides evidence of a continuous plane across the step.
+  const cols = 2,
+    rows = 2;
+  const slope = (col: number) => 4 + 0.08 * col;
   const grid = buildGrid(cols, rows, (col) => slope(col));
   const relaxed = triangulateDepthSurface(grid, {
     stride: STRIDE,
@@ -267,4 +271,138 @@ test("grazing floor keeps interior cells connected", () => {
   );
   const cells = new Set(indices);
   assert.ok(cells.has(3 * cols + 3), "the middle of the floor remains covered");
+});
+
+test("grazing planes with large depth changes remain covered up to image borders", () => {
+  const cols = 8,
+    rows = 8;
+  // The topmost edge changes depth by 50%, yet all samples lie on one plane.
+  const indices = triangulate(cols, rows, (_x, y) => 1 / (0.02 + 0.01 * y));
+  assert.equal(indices.length, (cols - 1) * (rows - 1) * 6);
+});
+
+test("local planar support preserves a noisy grazing surface", () => {
+  const cols = 9,
+    rows = 9;
+  const indices = triangulate(
+    cols,
+    rows,
+    (x, y) => 1 / (0.1 + 0.006 * y + ((x + y) % 2 ? 0.0006 : -0.0006)),
+  );
+  // Neighboring slopes differ enough to defeat the directional trend guard,
+  // but the interior still fits a plane to within the measured depth noise.
+  const used = new Set(indices);
+  for (let y = 1; y + 1 < rows; y++)
+    for (let x = 1; x + 1 < cols; x++) assert.ok(used.has(y * cols + x));
+  assert.ok(indices.length >= (cols - 3) * (rows - 3) * 6);
+});
+
+test("local plane support never bridges a moderate depth step", () => {
+  const cols = 9,
+    rows = 9;
+  const grid = buildGrid(cols, rows, (x) => (x < 4 ? 4 : 4.2));
+  const indices = triangulateDepthSurface(grid, {
+    stride: STRIDE,
+    fx: FX,
+    fy: FY,
+  });
+  assert.equal(indices.length, (cols - 2) * (rows - 1) * 6);
+  for (let i = 0; i < indices.length; i += 3) {
+    const side = indices[i] % cols < 4;
+    assert.equal(indices[i + 1] % cols < 4, side);
+    assert.equal(indices[i + 2] % cols < 4, side);
+  }
+});
+
+test("an isolated foreground sample is not joined to its background", () => {
+  const indices = triangulate(9, 9, (x, y) => (x === 4 && y === 4 ? 2 : 4));
+  assert.ok(indices.length > 0);
+  assert.ok(!new Set(indices).has(4 * 9 + 4));
+});
+
+test("isolated missing depth is recovered on its measured inverse-depth plane", () => {
+  const cols = 5,
+    rows = 5;
+  const depths = Float32Array.from(
+    { length: cols * rows },
+    (_, i) => 1 / (0.1 + (i % cols) * 0.01 + Math.floor(i / cols) * 0.02),
+  );
+  const expected = depths[12];
+  depths[12] = NaN;
+  const filled = fillIsolatedDepthHoles(depths, cols, rows);
+  assert.ok(Math.abs(filled[12] - expected) < 1e-6);
+  assert.ok(Number.isNaN(depths[12]), "measured samples remain unchanged");
+  const indices = triangulate(cols, rows, (x, y) => filled[y * cols + x]);
+  assert.equal(indices.length, (cols - 1) * (rows - 1) * 6);
+});
+
+test("holes at a depth step, borders, or in larger gaps remain missing", () => {
+  const step = Float32Array.from({ length: 25 }, (_, i) => (i % 5 < 2 ? 2 : 4));
+  step[12] = NaN;
+  assert.ok(Number.isNaN(fillIsolatedDepthHoles(step, 5, 5)[12]));
+  const gap = new Float32Array(25).fill(4);
+  gap[0] = gap[12] = gap[13] = NaN;
+  const filled = fillIsolatedDepthHoles(gap, 5, 5);
+  for (const cell of [0, 12, 13]) assert.ok(Number.isNaN(filled[cell]));
+});
+
+test("example depth retains measured surface coverage when viewed from above", () => {
+  const file = readFileSync(
+    new URL("../public/example/igloo.exr", import.meta.url),
+  );
+  const decoded = new EXRLoader()
+    .setDataType(FloatType)
+    .setOutputFormat(RedFormat)
+    .parse(
+      file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength),
+    );
+  const camera = JSON.parse(
+    readFileSync(
+      new URL("../public/example/igloo.json", import.meta.url),
+      "utf8",
+    ),
+  ).camera.intrinsics;
+  const stride = 2,
+    cols = Math.ceil(decoded.width / stride),
+    rows = Math.ceil(decoded.height / stride);
+  const depthAt = new Float32Array(cols * rows);
+  const vertexAt = Int32Array.from(depthAt, (_, i) => i);
+  const positions = new Float32Array(cols * rows * 3);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = y * cols + x;
+      const depth =
+        decoded.data[
+          (decoded.height - 1 - y * stride) * decoded.width + x * stride
+        ];
+      depthAt[cell] = depth;
+      positions.set(
+        [
+          ((x * stride + 0.5 - camera.cx) / camera.fx) * depth,
+          (-(y * stride + 0.5 - camera.cy) / camera.fy) * depth,
+          -depth,
+        ],
+        cell * 3,
+      );
+    }
+  }
+  const indices = triangulateDepthSurface(
+    { cols, rows, depthAt, vertexAt, positions },
+    { stride, fx: camera.fx, fy: camera.fy },
+  );
+  let projectedArea = 0;
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i] * 3,
+      b = indices[i + 1] * 3,
+      c = indices[i + 2] * 3;
+    projectedArea +=
+      Math.abs(
+        (positions[b] - positions[a]) * (positions[c + 2] - positions[a + 2]) -
+          (positions[b + 2] - positions[a + 2]) * (positions[c] - positions[a]),
+      ) / 2;
+  }
+  // The old directional guards kept only 14.58 square units of projected
+  // area. Count geometry, not pixels, so this remains independent of WebGL.
+  assert.ok(projectedArea > 19, `only ${projectedArea} square units remain`);
+  assert.ok(indices.length / 3 > 440000);
 });
