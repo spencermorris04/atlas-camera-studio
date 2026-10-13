@@ -9,6 +9,7 @@ import {
   StepBack,
   StepForward,
 } from "lucide-react";
+import { capturePointer } from "./pointer";
 import type {
   CameraKeyframe,
   KeyInterpolation,
@@ -102,7 +103,7 @@ export function Timeline({
     if (event.button !== 0) return;
     if ((event.target as Element).closest("[data-key-id]")) return;
     playhead.pause();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    capturePointer(event.currentTarget, event.pointerId);
     playhead.setFrame(frameFromPointer(event));
   }
 
@@ -114,7 +115,7 @@ export function Timeline({
     playhead.setFrame(key.frame);
     const pointerId = event.pointerId;
     const element = event.currentTarget;
-    element.setPointerCapture(pointerId);
+    capturePointer(element, pointerId);
     const move = (moveEvent: PointerEvent) => {
       if (moveEvent.pointerId !== pointerId) return;
       const next = frameFromPointer(moveEvent);
