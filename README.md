@@ -74,7 +74,7 @@ The editor follows your device's light or dark setting; the header button switch
 
 Navigate the overview with the mouse (drag to orbit; right-drag or Shift-drag to pan) or **W A S D** and **Q**/**E**. **R** frames the scene and path. These controls move your view of the scene, not the shot camera.
 
-The preview connects adjacent depth samples into textured surfaces to fill the gaps between points when viewing at an angle. It skips unsupported depth jumps and reconnects grazing surfaces when local inverse-depth samples establish a plane. Isolated missing samples can be repaired from measured planar neighbors; larger gaps remain open. Geometry hidden by the source image remains unobserved.
+The preview connects adjacent depth samples into textured surfaces wherever the depth supports them. In **Filled** mode (the default) it then fills the remaining gaps in screen space from blurred, lower-resolution copies of the cloud, so small gaps close and large ones fade out instead of showing holes. As the view moves away from the source photo's angle, points grow into soft discs and the texture fades. Gaps across depth jumps show as a faint, slowly shimmering glow in the colours on either side: the generated video fills these areas, and the preview does not pretend to know their detail. **Points** shows the raw measured samples.
 
 ### Get an API key
 

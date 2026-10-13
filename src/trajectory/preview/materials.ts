@@ -8,7 +8,7 @@ import * as THREE from "three";
 // colour for the offscreen cloud layer.
 
 /** Degrees of view-ray deviation where softening begins and is complete. */
-export const DEVIATION_START_DEGREES = 6;
+export const DEVIATION_START_DEGREES = 3;
 export const DEVIATION_END_DEGREES = 65;
 
 const deviationChunk = /* glsl */ `
@@ -22,7 +22,7 @@ float viewDeviation(vec3 sourceRay, vec3 viewRay) {
 // Points: on-axis they are today's square sprites. Deviated sprites grow to
 // cover the gaps their neighbours leave, turn into gaussian discs, and fade so
 // the fill pass blends them into one soft surface.
-const POINT_GROWTH = 1.4;
+const POINT_GROWTH = 2.2;
 const POINT_MIN_ALPHA = 0.5;
 
 export function createPointMaterial(): THREE.ShaderMaterial {
